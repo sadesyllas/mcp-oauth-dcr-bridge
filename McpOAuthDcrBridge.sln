@@ -1,0 +1,36 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpOAuthDcrBridge", "src\\McpOAuthDcrBridge\\McpOAuthDcrBridge.csproj", "{4A6D72CA-B2D5-4B13-A907-06E1BDCC934A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpOAuthDcrBridge.UnitTests", "tests\\McpOAuthDcrBridge.UnitTests\\McpOAuthDcrBridge.UnitTests.csproj", "{C80881D8-EBD5-4B8B-91A9-D5D4F811F4ED}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpOAuthDcrBridge.IntegrationTests", "tests\\McpOAuthDcrBridge.IntegrationTests\\McpOAuthDcrBridge.IntegrationTests.csproj", "{827D5A65-F8D3-497A-BD88-7712A585AED6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpOAuthDcrBridge.ContractTests", "tests\\McpOAuthDcrBridge.ContractTests\\McpOAuthDcrBridge.ContractTests.csproj", "{D4C0F99A-1198-481C-A0A0-4E1E9B4CA24F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4A6D72CA-B2D5-4B13-A907-06E1BDCC934A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4A6D72CA-B2D5-4B13-A907-06E1BDCC934A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4A6D72CA-B2D5-4B13-A907-06E1BDCC934A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4A6D72CA-B2D5-4B13-A907-06E1BDCC934A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C80881D8-EBD5-4B8B-91A9-D5D4F811F4ED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C80881D8-EBD5-4B8B-91A9-D5D4F811F4ED}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C80881D8-EBD5-4B8B-91A9-D5D4F811F4ED}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C80881D8-EBD5-4B8B-91A9-D5D4F811F4ED}.Release|Any CPU.Build.0 = Release|Any CPU
+		{827D5A65-F8D3-497A-BD88-7712A585AED6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{827D5A65-F8D3-497A-BD88-7712A585AED6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{827D5A65-F8D3-497A-BD88-7712A585AED6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{827D5A65-F8D3-497A-BD88-7712A585AED6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4C0F99A-1198-481C-A0A0-4E1E9B4CA24F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4C0F99A-1198-481C-A0A0-4E1E9B4CA24F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4C0F99A-1198-481C-A0A0-4E1E9B4CA24F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4C0F99A-1198-481C-A0A0-4E1E9B4CA24F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
