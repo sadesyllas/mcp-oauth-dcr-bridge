@@ -50,6 +50,10 @@ public sealed partial class RequestTelemetryMiddleware
             var result = context.Response.StatusCode >= StatusCodes.Status400BadRequest ? "failure" : "success";
             activity?.SetTag("http.response.status_code", context.Response.StatusCode);
             activity?.SetTag("bridge.result", result);
+            if (result == "failure")
+            {
+                activity?.SetStatus(ActivityStatusCode.Error);
+            }
             BridgeTelemetry.RequestCount.Add(1, new KeyValuePair<string, object?>("route", route), new KeyValuePair<string, object?>("status", statusClass));
             BridgeTelemetry.RequestDurationMilliseconds.Record(stopwatch.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("route", route), new KeyValuePair<string, object?>("status", statusClass));
             LogRequestCompleted(logger, route, method, context.Response.StatusCode, statusClass, result, stopwatch.Elapsed.TotalMilliseconds, correlation?.Value);
