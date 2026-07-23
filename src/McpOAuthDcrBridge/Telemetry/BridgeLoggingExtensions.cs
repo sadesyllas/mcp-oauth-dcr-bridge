@@ -13,8 +13,7 @@ public static class BridgeLoggingExtensions
     public static void ConfigureBridgeLogging(this ILoggingBuilder logging, bool isDevelopment)
     {
         logging.ClearProviders();
-        logging.AddFilter((_, category, level) =>
-            category == typeof(RequestTelemetryMiddleware).FullName && level >= LogLevel.Information);
+        logging.AddFilter(SafeTelemetryPolicy.IsEnabled);
         if (isDevelopment)
         {
             logging.AddSimpleConsole(options => options.SingleLine = true);

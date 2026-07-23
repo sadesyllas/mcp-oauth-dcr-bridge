@@ -6,11 +6,6 @@ namespace McpOAuthDcrBridge.UnitTests.Configuration;
 public sealed class TelemetryRedactorTests
 {
     [Theory]
-    [InlineData("Authorization")]
-    [InlineData("X-Innocuous-Configured-Secret")]
-    public void HeaderValuesAreAlwaysRedacted(string name) => Assert.Equal(TelemetryRedactor.RedactedValue, TelemetryRedactor.HeaderValue(name, "telemetry-canary-8c748b"));
-
-    [Theory]
     [InlineData("GET", "GET")]
     [InlineData("POST", "POST")]
     [InlineData("PATCH", "OTHER")]

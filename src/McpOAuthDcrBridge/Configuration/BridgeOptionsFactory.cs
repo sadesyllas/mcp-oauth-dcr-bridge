@@ -220,5 +220,5 @@ public static class BridgeOptionsFactory
         return value is "none" or "client_secret_post" or "client_secret_basic" or "private_key_jwt";
     }
 
-    private static BridgeConfigurationException Invalid(string key, string reason) => new($"{SectionName}:{key}", $"{TelemetryRedactor.ConfigurationError(key)} {reason}");
+    private static BridgeConfigurationException Invalid(string key, string reason) => new($"{SectionName}:{key}", $"{SafeTelemetryPolicy.ConfigurationError(key)} {reason}");
 }
