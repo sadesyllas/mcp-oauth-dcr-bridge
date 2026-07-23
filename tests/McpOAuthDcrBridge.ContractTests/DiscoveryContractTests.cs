@@ -41,18 +41,15 @@ public sealed class DiscoveryContractTests
         using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
         using var ordinaryProtected = await client.GetAsync("/.well-known/oauth-protected-resource");
         using var ordinaryAuthorization = await client.GetAsync("/.well-known/oauth-authorization-server");
-        using var poisoned = new HttpRequestMessage(HttpMethod.Get, "/.well-known/oauth-protected-resource?caller=untrusted");
-        poisoned.Headers.Host = "attacker.example.test";
-        poisoned.Headers.TryAddWithoutValidation("X-Forwarded-Host", "attacker.example.test");
-        poisoned.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "http");
-        poisoned.Headers.TryAddWithoutValidation("Forwarded", "for=192.0.2.1;host=attacker.example.test;proto=http");
-        poisoned.Headers.TryAddWithoutValidation("Authorization", "Bearer caller-identity-canary");
-        using var poisonedResponse = await client.SendAsync(poisoned);
+        using var poisonedProtected = await SendPoisonedMetadataRequestAsync(client, "/.well-known/oauth-protected-resource");
+        using var poisonedAuthorization = await SendPoisonedMetadataRequestAsync(client, "/.well-known/oauth-authorization-server");
 
         Assert.Equal("{\"resource\":\"https://bridge.example.test/mcp\",\"authorization_servers\":[\"https://bridge.example.test/\"],\"scopes_supported\":[\"scope-a\",\"scope-b\"],\"bearer_methods_supported\":[\"header\"]}", await ordinaryProtected.Content.ReadAsStringAsync());
         Assert.Equal("{\"issuer\":\"https://bridge.example.test/\",\"registration_endpoint\":\"https://bridge.example.test/register\",\"authorization_endpoint\":\"https://bridge.example.test/authorize\",\"token_endpoint\":\"https://bridge.example.test/token\",\"response_types_supported\":[\"code\"],\"grant_types_supported\":[\"authorization_code\",\"refresh_token\"],\"token_endpoint_auth_methods_supported\":[\"none\"],\"code_challenge_methods_supported\":[\"S256\"]}", await ordinaryAuthorization.Content.ReadAsStringAsync());
-        Assert.Equal(await ordinaryProtected.Content.ReadAsStringAsync(), await poisonedResponse.Content.ReadAsStringAsync());
-        Assert.Equal("public, max-age=300", poisonedResponse.Headers.CacheControl!.ToString());
+        Assert.Equal(await ordinaryProtected.Content.ReadAsStringAsync(), await poisonedProtected.Content.ReadAsStringAsync());
+        Assert.Equal(await ordinaryAuthorization.Content.ReadAsStringAsync(), await poisonedAuthorization.Content.ReadAsStringAsync());
+        Assert.Equal("public, max-age=300", poisonedProtected.Headers.CacheControl!.ToString());
+        Assert.Equal("public, max-age=300", poisonedAuthorization.Headers.CacheControl!.ToString());
         await application.StopAsync();
     }
 
@@ -178,5 +175,40 @@ public sealed class DiscoveryContractTests
         Assert.Equal(System.Net.HttpStatusCode.NotFound, nearMiss.StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.MethodNotAllowed, mcpMethod.StatusCode);
         await application.StopAsync();
+    }
+
+    [Theory]
+    [InlineData("/.well-known/oauth-protected-resource")]
+    [InlineData("/.well-known/oauth-authorization-server")]
+    public async Task DiscoveryRejectsDeclaredAndChunkedBodiesWithoutEchoingThem(string path)
+    {
+        const string canary = "discovery-body-canary-6b32";
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var declared = new HttpRequestMessage(HttpMethod.Get, path) { Content = new StringContent(canary) };
+        using var chunkedContent = new StringContent(canary);
+        chunkedContent.Headers.ContentLength = null;
+        using var chunked = new HttpRequestMessage(HttpMethod.Get, path) { Content = chunkedContent };
+        chunked.Headers.TransferEncodingChunked = true;
+        using var declaredResponse = await client.SendAsync(declared);
+        using var chunkedResponse = await client.SendAsync(chunked);
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, declaredResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, chunkedResponse.StatusCode);
+        Assert.Empty(await declaredResponse.Content.ReadAsStringAsync());
+        Assert.Empty(await chunkedResponse.Content.ReadAsStringAsync());
+        await application.StopAsync();
+    }
+
+    private static async Task<HttpResponseMessage> SendPoisonedMetadataRequestAsync(HttpClient client, string path)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"{path}?caller=untrusted");
+        request.Headers.Host = "attacker.example.test";
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Host", "attacker.example.test");
+        request.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "http");
+        request.Headers.TryAddWithoutValidation("Forwarded", "for=192.0.2.1;host=attacker.example.test;proto=http");
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer caller-identity-canary");
+        return await client.SendAsync(request);
     }
 }

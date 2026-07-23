@@ -12,8 +12,8 @@ public static class DiscoveryEndpointExtensions
     /// <returns>The same application for composition.</returns>
     public static WebApplication MapDiscoveryEndpoints(this WebApplication application, BridgeOptions options)
     {
-        application.MapGet("/.well-known/oauth-protected-resource", (HttpRequest request) => AcceptsJson(request) ? MetadataResult(ProtectedResourceMetadata(options)) : Results.StatusCode(StatusCodes.Status406NotAcceptable));
-        application.MapGet("/.well-known/oauth-authorization-server", (HttpRequest request) => AcceptsJson(request) ? MetadataResult(AuthorizationServerMetadata(options)) : Results.StatusCode(StatusCodes.Status406NotAcceptable));
+        application.MapGet("/.well-known/oauth-protected-resource", (HttpRequest request) => MetadataResult(request, ProtectedResourceMetadata(options)));
+        application.MapGet("/.well-known/oauth-authorization-server", (HttpRequest request) => MetadataResult(request, AuthorizationServerMetadata(options)));
         application.MapMethods("/mcp", ["GET", "POST", "DELETE"], (HttpRequest request) => HasBearerCredential(request) ? Results.NotFound() : ChallengeResult(options));
         return application;
     }
@@ -56,7 +56,11 @@ public static class DiscoveryEndpointExtensions
         return core.Length > 0 && core.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '.' or '_' or '~' or '+' or '/') && padding.All(character => character == '=');
     }
 
-    private static DiscoveryResult MetadataResult(object metadata) => new(StatusCodes.Status200OK, metadata, "public, max-age=300");
+    private static IResult MetadataResult(HttpRequest request, object metadata) =>
+        HasBody(request) ? Results.StatusCode(StatusCodes.Status400BadRequest) :
+        AcceptsJson(request) ? new DiscoveryResult(StatusCodes.Status200OK, metadata, "public, max-age=300") : Results.StatusCode(StatusCodes.Status406NotAcceptable);
+
+    private static bool HasBody(HttpRequest request) => request.ContentLength is > 0 || request.Headers.TransferEncoding.Count > 0;
 
     private static object ProtectedResourceMetadata(BridgeOptions options) => new
     {
