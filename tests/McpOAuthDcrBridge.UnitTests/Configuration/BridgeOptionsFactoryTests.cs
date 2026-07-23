@@ -1,4 +1,5 @@
 using McpOAuthDcrBridge.Configuration;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace McpOAuthDcrBridge.UnitTests.Configuration;
@@ -250,5 +251,37 @@ public sealed class BridgeOptionsFactoryTests
             Assert.Equal(expected, options.McpResourceUri.AbsoluteUri);
             Assert.Equal("stable", options.UpstreamMcpHeaders["X-Static"][0]);
         })));
+    }
+
+    [Fact]
+    public async Task ResolvedOptionsIgnoreConcurrentConfigurationProviderMutation()
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["Bridge:ExternalBaseUrl"] = "https://bridge.example.test/",
+            ["Bridge:Upstream:AuthorizationEndpoint"] = "https://login.example.test/authorize",
+            ["Bridge:Upstream:TokenEndpoint"] = "https://login.example.test/token",
+            ["Bridge:Upstream:McpUrl"] = "https://mcp.example.test/streamable",
+            ["Bridge:Upstream:ClientId"] = "fixed-client",
+            ["Bridge:Upstream:ClientAuthentication:Method"] = "client_secret_post",
+            ["Bridge:Upstream:ClientAuthentication:ClientSecret"] = "original-secret",
+            ["Bridge:AllowedRedirectUris:0"] = "https://client.example.test/callback",
+        };
+        var configuration = new ConfigurationManager();
+        configuration.AddInMemoryCollection(values);
+        var options = BridgeOptionsFactory.Create(configuration, false);
+        var expectedResource = options.McpResourceUri.AbsoluteUri;
+
+        var reads = Enumerable.Range(0, 100).Select(_ => Task.Run(() =>
+        {
+            Assert.Equal(expectedResource, options.McpResourceUri.AbsoluteUri);
+            Assert.Equal("original-secret", options.ClientAuthentication.ClientSecret);
+        }));
+        configuration["Bridge:ExternalBaseUrl"] = "https://attacker.example.test/";
+        configuration["Bridge:Upstream:ClientAuthentication:ClientSecret"] = "mutated-secret";
+        await Task.WhenAll(reads);
+
+        Assert.Equal("https://bridge.example.test/mcp", options.McpResourceUri.AbsoluteUri);
+        Assert.Equal("original-secret", options.ClientAuthentication.ClientSecret);
     }
 }
