@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using Xunit;
@@ -47,6 +48,28 @@ public sealed class RegistrationContractTests
 
         Assert.Equal(System.Net.HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.TooManyRequests, second.StatusCode);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task RegistrationRateLimitRecoversAfterItsConfiguredWindow()
+    {
+        await using var application = BridgeContractHost.Create(permitLimit: 1, configure: arguments =>
+        {
+            arguments.Add("--Bridge:Limits:RateLimitWindowSeconds");
+            arguments.Add("1");
+        });
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        var request = new { redirect_uris = new[] { "https://client.example.test/callback" } };
+        using var first = await client.PostAsJsonAsync("/register", request);
+        using var rejected = await client.PostAsJsonAsync("/register", request);
+        await Task.Delay(TimeSpan.FromSeconds(1.1));
+        using var recovered = await client.PostAsJsonAsync("/register", request);
+
+        Assert.Equal(System.Net.HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.TooManyRequests, rejected.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.Created, recovered.StatusCode);
         await application.StopAsync();
     }
 
@@ -125,6 +148,20 @@ public sealed class RegistrationContractTests
         await application.StopAsync();
     }
 
+    [Theory]
+    [InlineData("[\"https://client.example.test/callback\",\"https://client.example.test/callback\"]")]
+    [InlineData("[\"https://client.example.test/callback\",\"https://client.example.test/other\"]")]
+    public async Task RegistrationRejectsDuplicateAndMixedRedirectArrays(string redirects)
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var response = await client.PostAsync("/register", new StringContent($"{{\"redirect_uris\":{redirects}}}", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        await application.StopAsync();
+    }
+
     [Fact]
     public async Task RegistrationIsStatelessAcrossHostRestart()
     {
@@ -158,6 +195,22 @@ public sealed class RegistrationContractTests
     }
 
     [Fact]
+    public async Task RegistrationRejectsScopesOutsideTheConfiguredAllowlist()
+    {
+        await using var application = BridgeContractHost.Create(configure: arguments =>
+        {
+            arguments.Add("--Bridge:AllowedScopes:0");
+            arguments.Add("mcp.read");
+        });
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var response = await client.PostAsJsonAsync("/register", new { redirect_uris = new List<string> { "https://client.example.test/callback" }, scope = "mcp.write" });
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        await application.StopAsync();
+    }
+
+    [Fact]
     public async Task RegistrationRejectsDeclaredOversizeBody()
     {
         await using var application = BridgeContractHost.Create();
@@ -165,6 +218,20 @@ public sealed class RegistrationContractTests
         using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
         var bytes = Encoding.UTF8.GetBytes(new string('a', 32 * 1024 + 1));
         using var response = await client.PostAsync("/register", new ByteArrayContent(bytes) { Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") } });
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task RegistrationRejectsChunkedOversizeBody()
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var content = new ChunkedContent(Encoding.UTF8.GetBytes(new string('a', 32 * 1024 + 1)));
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        using var response = await client.PostAsync("/register", content);
 
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
         await application.StopAsync();
@@ -198,5 +265,20 @@ public sealed class RegistrationContractTests
         var body = await response.Content.ReadAsStringAsync();
         await application.StopAsync();
         return body;
+    }
+
+    private sealed class ChunkedContent : HttpContent
+    {
+        private readonly byte[] bytes;
+
+        public ChunkedContent(byte[] bytes) => this.bytes = bytes;
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => stream.WriteAsync(bytes).AsTask();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
     }
 }

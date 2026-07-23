@@ -27,6 +27,35 @@ public sealed class DiscoveryContractTests
         await application.StopAsync();
     }
 
+    [Fact]
+    public async Task MetadataDocumentsAreExactAndIndependentOfCallerControlledInput()
+    {
+        await using var application = BridgeContractHost.Create(configure: arguments =>
+        {
+            arguments.Add("--Bridge:AllowedScopes:0");
+            arguments.Add("scope-a");
+            arguments.Add("--Bridge:AllowedScopes:1");
+            arguments.Add("scope-b");
+        });
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var ordinaryProtected = await client.GetAsync("/.well-known/oauth-protected-resource");
+        using var ordinaryAuthorization = await client.GetAsync("/.well-known/oauth-authorization-server");
+        using var poisoned = new HttpRequestMessage(HttpMethod.Get, "/.well-known/oauth-protected-resource?caller=untrusted");
+        poisoned.Headers.Host = "attacker.example.test";
+        poisoned.Headers.TryAddWithoutValidation("X-Forwarded-Host", "attacker.example.test");
+        poisoned.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "http");
+        poisoned.Headers.TryAddWithoutValidation("Forwarded", "for=192.0.2.1;host=attacker.example.test;proto=http");
+        poisoned.Headers.TryAddWithoutValidation("Authorization", "Bearer caller-identity-canary");
+        using var poisonedResponse = await client.SendAsync(poisoned);
+
+        Assert.Equal("{\"resource\":\"https://bridge.example.test/mcp\",\"authorization_servers\":[\"https://bridge.example.test/\"],\"scopes_supported\":[\"scope-a\",\"scope-b\"],\"bearer_methods_supported\":[\"header\"]}", await ordinaryProtected.Content.ReadAsStringAsync());
+        Assert.Equal("{\"issuer\":\"https://bridge.example.test/\",\"registration_endpoint\":\"https://bridge.example.test/register\",\"authorization_endpoint\":\"https://bridge.example.test/authorize\",\"token_endpoint\":\"https://bridge.example.test/token\",\"response_types_supported\":[\"code\"],\"grant_types_supported\":[\"authorization_code\",\"refresh_token\"],\"token_endpoint_auth_methods_supported\":[\"none\"],\"code_challenge_methods_supported\":[\"S256\"]}", await ordinaryAuthorization.Content.ReadAsStringAsync());
+        Assert.Equal(await ordinaryProtected.Content.ReadAsStringAsync(), await poisonedResponse.Content.ReadAsStringAsync());
+        Assert.Equal("public, max-age=300", poisonedResponse.Headers.CacheControl!.ToString());
+        await application.StopAsync();
+    }
+
     [Theory]
     [InlineData("Basic abc")]
     [InlineData("Bearer")]
@@ -134,6 +163,20 @@ public sealed class DiscoveryContractTests
 
         Assert.Equal(System.Net.HttpStatusCode.MethodNotAllowed, methodResponse.StatusCode);
         Assert.Equal("application/json", jsonResponse.Content.Headers.ContentType!.MediaType);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task DiscoveryDoesNotRouteNearMissPathsOrUnexpectedMcpMethods()
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var nearMiss = await client.GetAsync("/.well-known/oauth-protected-resource/extra");
+        using var mcpMethod = await client.SendAsync(new HttpRequestMessage(HttpMethod.Put, "/mcp"));
+
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, nearMiss.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.MethodNotAllowed, mcpMethod.StatusCode);
         await application.StopAsync();
     }
 }
