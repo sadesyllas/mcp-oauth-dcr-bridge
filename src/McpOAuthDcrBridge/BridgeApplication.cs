@@ -41,6 +41,10 @@ public static class BridgeApplication
         application.UseExceptionHandler(errorApplication => errorApplication.Run(context =>
         {
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            if (context.Items[typeof(CorrelationIdentifier)] is CorrelationIdentifier correlation)
+            {
+                context.Response.Headers[CorrelationIdentifier.HeaderName] = correlation.Value;
+            }
             return Task.CompletedTask;
         }));
         application.UseRateLimiter();
