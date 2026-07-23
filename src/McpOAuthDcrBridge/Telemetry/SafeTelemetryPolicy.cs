@@ -20,8 +20,19 @@ public static class SafeTelemetryPolicy
     /// <param name="category">The log category.</param>
     /// <param name="level">The proposed log level.</param>
     /// <returns><see langword="true"/> only for registered bridge-owned categories at approved levels.</returns>
-    public static bool IsEnabled(string? providerName, string? category, LogLevel level) =>
-        category is not null && MinimumLogLevels.TryGetValue(category, out var minimumLevel) && level >= minimumLevel;
+    public static bool IsEnabled(string? providerName, string? category, LogLevel level)
+    {
+        // LogLevel.None is a filter sentinel, not an emittable severity. Reject
+        // it and future/invalid enum values before comparing minimum levels.
+        if (level is < LogLevel.Trace or > LogLevel.Critical)
+        {
+            return false;
+        }
+
+        return category is not null &&
+            MinimumLogLevels.TryGetValue(category, out var minimumLevel) &&
+            level >= minimumLevel;
+    }
 
     /// <summary>
     /// Creates a bounded configuration-validation message using only the configuration key.

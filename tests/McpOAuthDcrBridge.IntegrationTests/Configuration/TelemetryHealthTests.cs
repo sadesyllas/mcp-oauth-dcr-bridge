@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -61,15 +62,24 @@ public sealed class TelemetryHealthTests
     public async Task OtlpExporterIsDisabledWhenNoCollectorEndpointIsConfigured()
     {
         await using var collector = new LocalOtlpCollector(HttpStatusCode.OK);
-        await using var application = McpOAuthDcrBridge.BridgeApplication.Build(ValidBridgeCommandLine.Arguments);
-        await application.StartAsync();
-        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
-        using var response = await client.GetAsync("/health/ready");
+        var originalEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT");
+        Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", collector.Endpoint.AbsoluteUri);
+        try
+        {
+            await using var application = McpOAuthDcrBridge.BridgeApplication.Build(ValidBridgeCommandLine.Arguments);
+            await application.StartAsync();
+            using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+            using var response = await client.GetAsync("/health/ready");
 
-        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
-        await application.StopAsync();
-        await Task.Delay(TimeSpan.FromMilliseconds(200));
-        Assert.Empty(collector.RequestPaths);
+            Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+            await application.StopAsync();
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+            Assert.Empty(collector.Requests);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT", originalEndpoint);
+        }
     }
 
     [Fact]
@@ -84,10 +94,16 @@ public sealed class TelemetryHealthTests
         Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
         application.Services.GetRequiredService<TracerProvider>().ForceFlush();
+        await collector.WaitForRequestCountAsync(1);
         application.Services.GetRequiredService<MeterProvider>().ForceFlush();
-        await application.StopAsync();
         await collector.WaitForRequestCountAsync(2);
-        Assert.All(collector.RequestPaths, path => Assert.Equal("/", path));
+        await application.StopAsync();
+        Assert.All(collector.Requests, request =>
+        {
+            Assert.Equal("POST", request.Method);
+            Assert.Contains("application/x-protobuf", request.Headers["Content-Type"], StringComparison.OrdinalIgnoreCase);
+            Assert.NotEmpty(request.Body);
+        });
     }
 
     [Fact]
@@ -102,9 +118,11 @@ public sealed class TelemetryHealthTests
 
         Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
         Assert.DoesNotContain(canary, await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        application.Services.GetRequiredService<TracerProvider>().ForceFlush();
+        application.Services.GetRequiredService<MeterProvider>().ForceFlush();
         await application.StopAsync();
         await collector.WaitForRequestCountAsync(1);
-        Assert.All(collector.RequestBodies, body => Assert.DoesNotContain(canary, body, StringComparison.Ordinal));
+        Assert.All(collector.Requests, request => Assert.DoesNotContain(canary, $"{string.Join(';', request.Headers.Select(header => $"{header.Key}={header.Value}"))}\n{request.Body}", StringComparison.Ordinal));
     }
 
     private static string[] OtlpArguments(Uri endpoint) => ValidBridgeCommandLine.Arguments.Concat([
@@ -130,18 +148,17 @@ public sealed class TelemetryHealthTests
         }
 
         public Uri Endpoint { get; }
-        public ConcurrentQueue<string> RequestPaths { get; } = new();
-        public ConcurrentQueue<string> RequestBodies { get; } = new();
+        internal ConcurrentQueue<CapturedOtlpRequest> Requests { get; } = new();
 
         public async Task WaitForRequestCountAsync(int count)
         {
             var timeout = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
-            while (RequestPaths.Count < count && DateTimeOffset.UtcNow < timeout)
+            while (Requests.Count < count && DateTimeOffset.UtcNow < timeout)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(25));
             }
 
-            Assert.True(RequestPaths.Count >= count, $"Expected {count} OTLP export requests but observed {RequestPaths.Count}.");
+            Assert.True(Requests.Count >= count, $"Expected {count} OTLP export requests but observed {Requests.Count}.");
         }
 
         public async ValueTask DisposeAsync()
@@ -165,17 +182,61 @@ public sealed class TelemetryHealthTests
                 using (var writer = new StreamWriter(stream, leaveOpen: true))
                 {
                     var requestLine = await reader.ReadLineAsync(cancellation.Token) ?? string.Empty;
-                    RequestPaths.Enqueue(requestLine.Split(' ', StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(1) ?? string.Empty);
+                    var requestLineParts = requestLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     string? header;
                     while (!string.IsNullOrEmpty(header = await reader.ReadLineAsync(cancellation.Token)))
                     {
+                        var separator = header.IndexOf(':', StringComparison.Ordinal);
+                        if (separator > 0)
+                        {
+                            headers[header[..separator]] = header[(separator + 1)..].Trim();
+                        }
                     }
 
-                    RequestBodies.Enqueue(string.Empty);
+                    var body = headers.ContainsKey("Transfer-Encoding")
+                        ? await ReadChunkedBodyAsync(reader)
+                        : await ReadDeclaredBodyAsync(reader, headers);
+
+                    Requests.Enqueue(new CapturedOtlpRequest(requestLineParts.ElementAtOrDefault(0) ?? string.Empty, requestLineParts.ElementAtOrDefault(1) ?? string.Empty, headers, body));
                     await writer.WriteAsync($"HTTP/1.1 {(int)responseStatus} {responseStatus}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
                     await writer.FlushAsync(cancellation.Token);
                 }
             }
         }
+
+        private static async Task<string> ReadDeclaredBodyAsync(StreamReader reader, Dictionary<string, string> headers)
+        {
+            var contentLength = headers.TryGetValue("Content-Length", out var value) && int.TryParse(value, out var parsedLength) ? parsedLength : 0;
+            return await ReadCharactersAsync(reader, contentLength);
+        }
+
+        private static async Task<string> ReadChunkedBodyAsync(StreamReader reader)
+        {
+            var body = new StringBuilder();
+            while (true)
+            {
+                var lengthLine = await reader.ReadLineAsync();
+                var lengthText = lengthLine?.Split(';', 2)[0] ?? "0";
+                var length = Convert.ToInt32(lengthText, 16);
+                if (length == 0)
+                {
+                    await reader.ReadLineAsync();
+                    return body.ToString();
+                }
+
+                body.Append(await ReadCharactersAsync(reader, length));
+                await reader.ReadLineAsync();
+            }
+        }
+
+        private static async Task<string> ReadCharactersAsync(StreamReader reader, int length)
+        {
+            var buffer = new char[length];
+            var read = await reader.ReadAsync(buffer.AsMemory());
+            return new string(buffer, 0, read);
+        }
+
+        internal sealed record CapturedOtlpRequest(string Method, string Path, Dictionary<string, string> Headers, string Body);
     }
 }

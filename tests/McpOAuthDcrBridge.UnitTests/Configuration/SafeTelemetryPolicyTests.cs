@@ -12,6 +12,9 @@ public sealed class SafeTelemetryPolicyTests
     [InlineData(LogLevel.Information, true)]
     [InlineData(LogLevel.Warning, true)]
     [InlineData(LogLevel.Error, true)]
+    [InlineData(LogLevel.Critical, true)]
+    [InlineData(LogLevel.None, false)]
+    [InlineData((LogLevel)99, false)]
     public void RequestTelemetryCategoryAllowsOnlyItsRegisteredLevels(LogLevel level, bool expected) =>
         Assert.Equal(expected, SafeTelemetryPolicy.IsEnabled(null, typeof(RequestTelemetryMiddleware).FullName!, level));
 
@@ -21,7 +24,7 @@ public sealed class SafeTelemetryPolicyTests
     [InlineData("McpOAuthDcrBridge.Telemetry.RequestTelemetryMiddleware.NearMatch")]
     public void UnregisteredCategoriesAreRejectedAtEveryLevel(string category)
     {
-        foreach (var level in Enum.GetValues<LogLevel>())
+        foreach (var level in Enum.GetValues<LogLevel>().Append((LogLevel)99))
         {
             Assert.False(SafeTelemetryPolicy.IsEnabled(null, category, level));
         }
