@@ -5,8 +5,11 @@ Resolved findings remain here for audit history while any finding is open. The
 `Reviewed` cells for M1–M4 must remain unticked until a reviewer verifies every
 fix and the complete required evidence.
 
-The third re-review leaves five findings open. M3-02 is now resolved. Across the
-complete record, twelve findings are resolved and five remain open.
+The fourth re-review inspected coder commit `df68bce`. Five findings remain
+open: M1-04, M2-01, M2-03, M3-03, and M4-04. The latest commit adds an exact
+full-success registration response contract, but it does not implement the
+current five-item completion plan. Across the complete record, twelve findings
+are resolved and five remain open.
 
 ## Coder completion plan
 
@@ -629,6 +632,43 @@ with the implemented validation, limits, telemetry, and stateless behavior.
 
 ### M4-04 — The required registration test matrix is missing (high)
 
+**Fourth re-review status: OPEN (2026-07-23).** Commit `df68bce` adds a useful
+exact full-success DCR response test, but that success contract was not the
+remaining M4-04 defect. The attempted fix does not modify
+`TelemetryCaptureContractTests`. Its registration request at
+`tests/McpOAuthDcrBridge.IntegrationTests/Configuration/TelemetryCaptureContractTests.cs:41-44`
+still constructs `StringContent` without an `application/json` content type, so
+`RegistrationEndpointExtensions.RegisterAsync` returns at its content-type
+guard before parsing the credential canary. The test still asserts only the
+registration status, checks only the query canary in activities and metrics,
+captures no `double` duration measurements, and never inspects the registration
+error body, response content type, activity result, or health artifacts.
+Consequently, the new success test improves an already passing wire contract
+but supplies none of the outstanding registration telemetry-canary evidence.
+
+**Revised guidance for the next fix pass:**
+
+1. In the shared telemetry capture harness, send valid JSON with
+   `new StringContent(json, Encoding.UTF8, "application/json")`. Use distinct
+   canaries for a smuggled credential, invalid redirect, unsupported scope,
+   Authorization header, and query input, and ensure each request reaches JSON
+   parsing before its intended validation rejection.
+2. Capture structured log key/value state, stopped activity status/tags/events/
+   baggage, `long` counters, `double` histograms, response artifacts, and both
+   health artifacts. Assert every expected collection is nonempty before
+   inspecting it. Reuse this one harness for M2-03 and M4-04; do not introduce
+   a second telemetry implementation.
+3. For every registration case, assert the exact expected status,
+   `application/json` content type, and bounded JSON error body. Flatten every
+   captured artifact and assert that none of the canaries occurs anywhere.
+4. Assert that the registration request activity, `bridge.requests`, and
+   `bridge.request.duration` were actually captured with route
+   `registration`, status `4xx`, and result `failure`. This must cover every
+   registration canary, not only the query canary.
+5. Demonstrate resolution by passing the focused telemetry and registration
+   suites plus every repository gate listed in the coder completion plan, and
+   report the exact totals in the handoff.
+
 **Third re-review status: OPEN (2026-07-23).** Duplicate/mixed redirects,
 unapproved scopes, chunked oversize bodies, and rate-limit recovery are now
 covered. The telemetry test still does not complete the registration canary
@@ -755,3 +795,21 @@ they do not replace the milestone-specific tests listed above.
   `AllCapturedTelemetryUsesOnlyTheBoundedRequestContract`: passed.
 - Focused execution of JSON specificity exclusions, chunked registration size,
   and rate-limit recovery: 6 tests passed.
+
+### 2026-07-23 fourth re-review validation
+
+- Review scope after the prior reviewer plan contained one coder commit:
+  `df68bce` (`M4: lock full registration response contract`), changing only
+  `RegistrationContractTests.cs`.
+- Focused suites passed: 85 unit, 12 integration, and 53 contract tests; 150
+  total, 0 failed, 0 skipped.
+- `dotnet test McpOAuthDcrBridge.sln --configuration Release --no-restore`:
+  passed, 150 total tests, 0 failed, 0 skipped.
+- `dotnet build McpOAuthDcrBridge.sln --configuration Release --no-restore`:
+  passed with 0 warnings and 0 errors.
+- `dotnet format McpOAuthDcrBridge.sln --verify-no-changes --no-restore`:
+  passed.
+- `git diff --check`: passed.
+- The new `FullRegistrationUsesTheExactCreatedContract` test passed. Direct
+  inspection confirmed that the open M1-04, M2-01, M2-03, M3-03, and M4-04
+  completion-plan work is otherwise unchanged.
