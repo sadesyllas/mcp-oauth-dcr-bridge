@@ -14,7 +14,7 @@ public sealed partial class TelemetryCaptureContractTests
     private static readonly string[] MetricStatusClasses = ["2xx", "4xx", "5xx"];
 
     [Fact]
-    public async Task CaptureHarnessLocksTelemetryHealthAndRegistrationCanaryContracts()
+    public async Task SharedCaptureHarnessLocksM2TelemetryAndM4RegistrationCanaryContracts()
     {
         var canaries = new[]
         {
