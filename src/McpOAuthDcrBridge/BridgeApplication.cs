@@ -1,4 +1,5 @@
 using McpOAuthDcrBridge.Configuration;
+using McpOAuthDcrBridge.Telemetry;
 
 namespace McpOAuthDcrBridge;
 
@@ -16,8 +17,16 @@ public static class BridgeApplication
     {
         var builder = WebApplication.CreateBuilder(args);
         var bridgeOptions = BridgeOptionsFactory.Create(builder.Configuration, builder.Environment.IsDevelopment());
+        builder.Logging.ConfigureBridgeLogging(builder.Environment.IsDevelopment());
         builder.Services.AddSingleton(bridgeOptions);
+        builder.Services.AddBridgeTelemetry(bridgeOptions, builder.Environment.IsDevelopment());
+        builder.Services.AddHealthChecks();
 
-        return builder.Build();
+        var application = builder.Build();
+        application.UseBridgeTelemetry();
+        application.MapHealthChecks("/health/live");
+        application.MapHealthChecks("/health/ready");
+
+        return application;
     }
 }

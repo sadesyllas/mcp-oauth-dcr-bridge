@@ -37,6 +37,9 @@ public sealed class BridgeOptions
     /// <summary>Gets bounded request, timeout, rate-limit, and shutdown settings.</summary>
     public required BridgeLimits Limits { get; init; }
 
+    /// <summary>Gets the optional OTLP collector endpoint for metrics and traces.</summary>
+    public Uri? OtlpEndpoint { get; init; }
+
     /// <summary>Gets the canonical bridge issuer URI.</summary>
     public Uri IssuerUri => ExternalBaseUri;
 

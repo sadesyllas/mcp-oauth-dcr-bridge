@@ -44,6 +44,7 @@ public static class BridgeOptionsFactory
             ClientAuthentication = authentication,
             UpstreamMcpHeaders = headers,
             Limits = Limits(section.GetSection("Limits")),
+            OtlpEndpoint = OptionalUri(section, "Telemetry:OtlpEndpoint", allowHttp),
         };
     }
 
@@ -171,6 +172,8 @@ public static class BridgeOptionsFactory
     }
 
     private static Uri RequiredUri(IConfiguration section, string key, bool allowHttp) => ParseUri(RequiredText(section, key), key, allowHttp);
+
+    private static Uri? OptionalUri(IConfiguration section, string key, bool allowHttp) => section[key] is { Length: > 0 } value ? ParseUri(value, key, allowHttp) : null;
 
     private static Uri ParseUri(string? value, string key, bool allowHttp)
     {

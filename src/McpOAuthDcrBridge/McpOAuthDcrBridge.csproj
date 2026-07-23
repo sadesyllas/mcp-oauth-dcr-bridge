@@ -3,4 +3,8 @@
     <AssemblyName>McpOAuthDcrBridge</AssemblyName>
     <RootNamespace>McpOAuthDcrBridge</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+  </ItemGroup>
 </Project>
