@@ -2,6 +2,7 @@ using McpOAuthDcrBridge.Configuration;
 using McpOAuthDcrBridge.Discovery;
 using McpOAuthDcrBridge.Registration;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Configuration;
 using System.Threading.RateLimiting;
 using McpOAuthDcrBridge.Telemetry;
 
@@ -18,8 +19,21 @@ public static class BridgeApplication
     /// <param name="args">The command-line configuration arguments for the host.</param>
     /// <returns>A configured application host that has not yet been started.</returns>
     public static WebApplication Build(string[] args)
+        => Build(args, null);
+
+    /// <summary>
+    /// Builds the endpoint-free application host with an optional additional configuration source.
+    /// </summary>
+    /// <param name="args">The command-line configuration arguments for the host.</param>
+    /// <param name="additionalConfiguration">An optional configuration source with precedence over command-line values.</param>
+    /// <returns>A configured application host that has not yet been started.</returns>
+    public static WebApplication Build(string[] args, IConfiguration? additionalConfiguration)
     {
         var builder = WebApplication.CreateBuilder(args);
+        if (additionalConfiguration is not null)
+        {
+            builder.Configuration.AddConfiguration(additionalConfiguration);
+        }
         var bridgeOptions = BridgeOptionsFactory.Create(builder.Configuration, builder.Environment.IsDevelopment());
         builder.Logging.ConfigureBridgeLogging(builder.Environment.IsDevelopment());
         builder.Services.AddSingleton(bridgeOptions);
