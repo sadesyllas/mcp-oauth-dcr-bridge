@@ -1,5 +1,6 @@
-var builder = WebApplication.CreateBuilder(args);
-var application = builder.Build();
+using McpOAuthDcrBridge;
+
+var application = BridgeApplication.Build(args);
 
 await application.RunAsync();
 

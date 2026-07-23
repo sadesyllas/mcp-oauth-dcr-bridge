@@ -1,7 +1,6 @@
-using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using McpOAuthDcrBridge;
 using Xunit;
 
 namespace McpOAuthDcrBridge.IntegrationTests;
@@ -11,26 +10,31 @@ public sealed class HostLifecycleTests
     [Fact]
     public async Task HostStartsWithoutProductEndpointsAndStopsGracefully()
     {
-        var factory = new WebApplicationFactory<Program>();
+        using var cancellation = new CancellationTokenSource();
+        await using var application = BridgeApplication.Build(["--urls", "http://127.0.0.1:0"]);
+        var applicationLifetime = application.Services.GetRequiredService<IHostApplicationLifetime>();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var startedRegistration = applicationLifetime.ApplicationStarted.Register(started.SetResult);
+        using var stoppedRegistration = applicationLifetime.ApplicationStopped.Register(stopped.SetResult);
+        var runTask = application.RunAsync(cancellation.Token);
 
         try
         {
-            var applicationLifetime = factory.Services.GetRequiredService<IHostApplicationLifetime>();
-            var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var stoppingRegistration = applicationLifetime.ApplicationStopping.Register(stopped.SetResult);
-            using var client = factory.CreateClient();
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
 
             var response = await client.GetAsync("/");
 
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, response.StatusCode);
 
-            factory.Dispose();
+            cancellation.Cancel();
 
-            await stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAll(runTask, stopped.Task).WaitAsync(TimeSpan.FromSeconds(5));
         }
         finally
         {
-            factory.Dispose();
+            cancellation.Cancel();
         }
     }
 }
