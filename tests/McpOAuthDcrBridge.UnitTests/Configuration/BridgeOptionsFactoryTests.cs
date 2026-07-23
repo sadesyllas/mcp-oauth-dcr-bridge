@@ -1,5 +1,7 @@
 using McpOAuthDcrBridge.Configuration;
 using Microsoft.Extensions.Configuration;
+using System.Collections.Immutable;
+using System.Globalization;
 using System.Text.Json;
 using Xunit;
 
@@ -165,6 +167,23 @@ public sealed class BridgeOptionsFactoryTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CreateRequiresAtLeastOneNonemptyRedirectUri(bool emptyValue)
+    {
+        var exception = Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values =>
+        {
+            values.Remove("Bridge:AllowedRedirectUris:0");
+            if (emptyValue)
+            {
+                values["Bridge:AllowedRedirectUris:0"] = string.Empty;
+            }
+        }), false));
+
+        Assert.Contains("AllowedRedirectUris", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("http://remote.example.test/callback")]
     [InlineData("http://192.0.2.2/callback")]
     [InlineData("http://[::2]/callback")]
@@ -297,6 +316,33 @@ public sealed class BridgeOptionsFactoryTests
     }
 
     [Fact]
+    public void CreateRejectsConfiguredHeaderWithoutValues()
+    {
+        var exception = Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values =>
+        {
+            values["Bridge:Upstream:McpHeaders:0:Name"] = "X-Static";
+        }), false));
+
+        Assert.Contains("McpHeaders", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreatePreservesAndFreezesMultipleHeaderValues()
+    {
+        var options = BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values =>
+        {
+            values["Bridge:Upstream:McpHeaders:0:Name"] = "X-Static";
+            values["Bridge:Upstream:McpHeaders:0:Values:0"] = "first";
+            values["Bridge:Upstream:McpHeaders:0:Values:1"] = "second";
+        }), false);
+
+        var values = options.UpstreamMcpHeaders["X-Static"];
+        Assert.Equal(["first", "second"], values.ToArray());
+        Assert.IsType<ImmutableArray<string>>(values);
+        Assert.IsType<ImmutableDictionary<string, ImmutableArray<string>>>(options.UpstreamMcpHeaders);
+    }
+
+    [Fact]
     public void OptionsDiagnosticsAndConfigurationFailuresDoNotExposeCredentialsOrHeaderValues()
     {
         const string secretCanary = "client-secret-canary-1f39";
@@ -338,14 +384,28 @@ public sealed class BridgeOptionsFactoryTests
         }
     }
 
+    public static IEnumerable<object[]> OutOfBoundsLimits()
+    {
+        var limits = new[]
+        {
+            (Key: "DcrRequestBodyBytes", Minimum: 1024, Maximum: 1024 * 1024),
+            (Key: "TokenRequestBodyBytes", Minimum: 1024, Maximum: 1024 * 1024),
+            (Key: "OAuthTimeoutSeconds", Minimum: 1, Maximum: 120),
+            (Key: "McpActivityTimeoutSeconds", Minimum: 1, Maximum: 3600),
+            (Key: "ShutdownDrainTimeoutSeconds", Minimum: 1, Maximum: 300),
+            (Key: "RateLimitPermitLimit", Minimum: 1, Maximum: 10000),
+            (Key: "RateLimitWindowSeconds", Minimum: 1, Maximum: 3600),
+        };
+
+        foreach (var limit in limits)
+        {
+            yield return [limit.Key, (limit.Minimum - 1).ToString(CultureInfo.InvariantCulture)];
+            yield return [limit.Key, (limit.Maximum + 1).ToString(CultureInfo.InvariantCulture)];
+        }
+    }
+
     [Theory]
-    [InlineData("DcrRequestBodyBytes", "1023")]
-    [InlineData("TokenRequestBodyBytes", "1048577")]
-    [InlineData("OAuthTimeoutSeconds", "0")]
-    [InlineData("McpActivityTimeoutSeconds", "3601")]
-    [InlineData("ShutdownDrainTimeoutSeconds", "301")]
-    [InlineData("RateLimitPermitLimit", "0")]
-    [InlineData("RateLimitWindowSeconds", "3601")]
+    [MemberData(nameof(OutOfBoundsLimits))]
     public void CreateRejectsOutOfBoundsLimits(string key, string value)
     {
         var exception = Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values[$"Bridge:Limits:{key}"] = value), false));

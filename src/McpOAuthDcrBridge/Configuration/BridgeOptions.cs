@@ -6,6 +6,7 @@ namespace McpOAuthDcrBridge.Configuration;
 /// <summary>
 /// Contains the validated, immutable deployment contract for one bridge instance.
 /// </summary>
+[JsonConverter(typeof(BridgeOptionsJsonConverter))]
 public sealed class BridgeOptions
 {
     /// <summary>Gets the canonical public base URI for this bridge.</summary>
@@ -31,11 +32,11 @@ public sealed class BridgeOptions
 
     /// <summary>Gets the configured upstream token endpoint client authentication. It is excluded from JSON diagnostics because it can contain credentials.</summary>
     [JsonIgnore]
-    public UpstreamClientAuthenticationOptions ClientAuthentication { get; init; } = null!;
+    public required UpstreamClientAuthenticationOptions ClientAuthentication { get; init; }
 
     /// <summary>Gets static headers applied only to upstream MCP requests. They are excluded from JSON diagnostics because their values can be sensitive.</summary>
     [JsonIgnore]
-    public ImmutableDictionary<string, ImmutableArray<string>> UpstreamMcpHeaders { get; init; } = null!;
+    public required ImmutableDictionary<string, ImmutableArray<string>> UpstreamMcpHeaders { get; init; }
 
     /// <summary>Gets bounded request, timeout, rate-limit, and shutdown settings.</summary>
     public required BridgeLimits Limits { get; init; }
