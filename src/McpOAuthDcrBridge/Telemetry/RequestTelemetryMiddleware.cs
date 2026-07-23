@@ -26,10 +26,11 @@ public sealed partial class RequestTelemetryMiddleware
     {
         var stopwatch = Stopwatch.StartNew();
         var route = TelemetryEndpointClassifier.Classify(context.Request.Path);
+        var method = TelemetryRedactor.HttpMethod(context.Request.Method);
         var correlation = (CorrelationIdentifier?)context.Items[typeof(CorrelationIdentifier)];
         using var activity = BridgeTelemetry.ActivitySource.StartActivity("bridge.request");
         activity?.SetTag("bridge.route", route);
-        activity?.SetTag("bridge.method", context.Request.Method);
+        activity?.SetTag("bridge.method", method);
         activity?.SetTag("bridge.correlation_id", correlation?.Value);
 
         try
@@ -45,11 +46,11 @@ public sealed partial class RequestTelemetryMiddleware
         finally
         {
             stopwatch.Stop();
-            var statusClass = $"{context.Response.StatusCode / 100}xx";
+            var statusClass = TelemetryRedactor.ResultCategory(context.Response.StatusCode);
             activity?.SetTag("http.response.status_code", context.Response.StatusCode);
             BridgeTelemetry.RequestCount.Add(1, new KeyValuePair<string, object?>("route", route), new KeyValuePair<string, object?>("status", statusClass));
             BridgeTelemetry.RequestDurationMilliseconds.Record(stopwatch.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("route", route));
-            LogRequestCompleted(logger, route, context.Request.Method, statusClass, stopwatch.Elapsed.TotalMilliseconds, correlation?.Value);
+            LogRequestCompleted(logger, route, method, statusClass, stopwatch.Elapsed.TotalMilliseconds, correlation?.Value);
         }
     }
 
