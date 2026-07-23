@@ -1,5 +1,6 @@
 using McpOAuthDcrBridge.Configuration;
 using Microsoft.Extensions.Configuration;
+using System.Text.Json;
 using Xunit;
 
 namespace McpOAuthDcrBridge.UnitTests.Configuration;
@@ -13,8 +14,14 @@ public sealed class BridgeOptionsFactoryTests
 
         Assert.Equal("https://bridge.example.test/base/", options.IssuerUri.AbsoluteUri);
         Assert.Equal("https://bridge.example.test/base/mcp", options.McpResourceUri.AbsoluteUri);
+        Assert.Equal("https://bridge.example.test/base/register", options.RegistrationUri.AbsoluteUri);
+        Assert.Equal("https://bridge.example.test/base/authorize", options.AuthorizationUri.AbsoluteUri);
+        Assert.Equal("https://bridge.example.test/base/token", options.TokenUri.AbsoluteUri);
         Assert.Equal("https://login.example.test/authorize", options.UpstreamAuthorizationEndpoint.AbsoluteUri);
+        Assert.Equal("https://login.example.test/token", options.UpstreamTokenEndpoint.AbsoluteUri);
+        Assert.Equal("https://mcp.example.test/streamable", options.UpstreamMcpUri.AbsoluteUri);
         Assert.Equal("fictional-client", options.ClientId);
+        Assert.Equal(UpstreamClientAuthenticationMethod.None, options.ClientAuthentication.Method);
         Assert.Empty(options.AllowedScopes);
         Assert.Equal(32 * 1024, options.Limits.DcrRequestBodyBytes);
         Assert.Equal(16 * 1024, options.Limits.TokenRequestBodyBytes);
@@ -31,6 +38,62 @@ public sealed class BridgeOptionsFactoryTests
         var exception = Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values[key] = value), false));
 
         Assert.Contains(key.Split(':').Last(), exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Bridge:ExternalBaseUrl")]
+    [InlineData("Bridge:Upstream:AuthorizationEndpoint")]
+    [InlineData("Bridge:Upstream:TokenEndpoint")]
+    [InlineData("Bridge:Upstream:McpUrl")]
+    [InlineData("Bridge:Upstream:ClientId")]
+    [InlineData("Bridge:Upstream:ClientAuthentication:Method")]
+    public void CreateRejectsEveryMissingRequiredKey(string key)
+    {
+        var exception = Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values[key] = string.Empty), false));
+
+        Assert.Contains(key.Split(':').Last(), exception.Message, StringComparison.Ordinal);
+    }
+
+    public static IEnumerable<object?[]> FixedUriRules()
+    {
+        var keys = new[]
+        {
+            "Bridge:ExternalBaseUrl",
+            "Bridge:Upstream:AuthorizationEndpoint",
+            "Bridge:Upstream:TokenEndpoint",
+            "Bridge:Upstream:McpUrl",
+        };
+        foreach (var key in keys)
+        {
+            yield return [key, string.Empty, false, false];
+            yield return [key, "/relative", false, false];
+            yield return [key, "http://remote.example.test/path", false, false];
+            yield return [key, "https://user:password@example.test/path", false, false];
+            yield return [key, "https://example.test/path?query=true", false, false];
+            yield return [key, "https://example.test/path#fragment", false, false];
+            yield return [key, "http://127.0.0.1:5000/path", true, true];
+            yield return [key, "http://localhost.evil.test/path", true, false];
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(FixedUriRules))]
+    public void CreateAppliesEveryFixedUriRule(string key, string value, bool development, bool valid)
+    {
+        var configuration = ValidBridgeConfiguration.Create(values =>
+        {
+            values[key] = value;
+            values["Bridge:AllowHttpForLocalDevelopment"] = "true";
+        });
+
+        if (valid)
+        {
+            Assert.NotNull(BridgeOptionsFactory.Create(configuration, development));
+        }
+        else
+        {
+            Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(configuration, development));
+        }
     }
 
     [Fact]
@@ -67,6 +130,28 @@ public sealed class BridgeOptionsFactoryTests
         var exception = Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values["Bridge:AllowedRedirectUris:0"] = redirectUri), false));
 
         Assert.Contains("AllowedRedirectUris", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("https://CLIENT.example.test/callback", true)]
+    [InlineData("https://client.example.test:443/callback", true)]
+    [InlineData("https://client.example.test/one/../callback", true)]
+    [InlineData("https://client.example.test/callback?text=one%2Ftwo", true)]
+    [InlineData("https://client.example.test/callback#fragment", false)]
+    [InlineData("https://user@client.example.test/callback", false)]
+    [InlineData("http://client.example.test/callback", false)]
+    public void CreateAppliesExactRedirectBoundaryRules(string redirectUri, bool valid)
+    {
+        var configuration = ValidBridgeConfiguration.Create(values => values["Bridge:AllowedRedirectUris:0"] = redirectUri);
+
+        if (valid)
+        {
+            Assert.Contains(redirectUri, BridgeOptionsFactory.Create(configuration, false).AllowedRedirectUris);
+        }
+        else
+        {
+            Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(configuration, false));
+        }
     }
 
     [Fact]
@@ -141,15 +226,37 @@ public sealed class BridgeOptionsFactoryTests
         }
     }
 
+    public static IEnumerable<object?[]> CredentialCombinations()
+    {
+        var methods = new[] { "none", "client_secret_post", "client_secret_basic", "private_key_jwt" };
+        var credentials = new[]
+        {
+            (Secret: (string?)null, CertificatePath: (string?)null),
+            (Secret: "secret", CertificatePath: (string?)null),
+            (Secret: (string?)null, CertificatePath: "/run/secrets/client.pfx"),
+            (Secret: "secret", CertificatePath: "/run/secrets/client.pfx"),
+        };
+        foreach (var method in methods)
+        {
+            foreach (var credential in credentials)
+            {
+                var valid = method switch
+                {
+                    "none" => credential is { Secret: null, CertificatePath: null },
+                    "client_secret_post" or "client_secret_basic" => credential is { Secret: not null, CertificatePath: null },
+                    "private_key_jwt" => credential is { Secret: null, CertificatePath: not null },
+                    _ => false,
+                };
+                yield return [method, credential.Secret, credential.CertificatePath, valid];
+            }
+        }
+
+        yield return ["unrecognized", null, null, false];
+    }
+
     [Theory]
-    [InlineData("none", null, null, true)]
-    [InlineData("client_secret_post", "secret", null, true)]
-    [InlineData("client_secret_basic", "secret", null, true)]
-    [InlineData("private_key_jwt", null, "/run/secrets/client.pfx", true)]
-    [InlineData("none", "secret", null, false)]
-    [InlineData("client_secret_post", null, null, false)]
-    [InlineData("private_key_jwt", "secret", null, false)]
-    public void CreateValidatesCredentialCombinations(string method, string? secret, string? certificatePath, bool valid)
+    [MemberData(nameof(CredentialCombinations))]
+    public void CreateValidatesEveryCredentialCombination(string method, string? secret, string? certificatePath, bool valid)
     {
         var configuration = ValidBridgeConfiguration.Create(values =>
         {
@@ -189,6 +296,48 @@ public sealed class BridgeOptionsFactoryTests
         Assert.Contains("McpHeaders", duplicate.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void OptionsDiagnosticsAndConfigurationFailuresDoNotExposeCredentialsOrHeaderValues()
+    {
+        const string secretCanary = "client-secret-canary-1f39";
+        const string certificateCanary = "/run/secrets/certificate-canary-1f39.pfx";
+        const string headerCanary = "header-value-canary-1f39";
+        var options = BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values =>
+        {
+            values["Bridge:Upstream:ClientAuthentication:Method"] = "client_secret_post";
+            values["Bridge:Upstream:ClientAuthentication:ClientSecret"] = secretCanary;
+            values["Bridge:Upstream:McpHeaders:0:Name"] = "X-Canary";
+            values["Bridge:Upstream:McpHeaders:0:Values:0"] = headerCanary;
+        }), false);
+        var certificateOptions = BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values =>
+        {
+            values["Bridge:Upstream:ClientAuthentication:Method"] = "private_key_jwt";
+            values["Bridge:Upstream:ClientAuthentication:CertificatePath"] = certificateCanary;
+        }), false);
+        var failure = Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values =>
+        {
+            values["Bridge:Upstream:McpHeaders:0:Name"] = "Authorization";
+            values["Bridge:Upstream:McpHeaders:0:Values:0"] = headerCanary;
+        }), false));
+
+        var representations = new[]
+        {
+            JsonSerializer.Serialize(options),
+            JsonSerializer.Serialize(options.ClientAuthentication),
+            JsonSerializer.Serialize(certificateOptions),
+            JsonSerializer.Serialize(certificateOptions.ClientAuthentication),
+            options.ToString() ?? string.Empty,
+            certificateOptions.ToString() ?? string.Empty,
+            failure.ToString(),
+        };
+        foreach (var representation in representations)
+        {
+            Assert.DoesNotContain(secretCanary, representation, StringComparison.Ordinal);
+            Assert.DoesNotContain(certificateCanary, representation, StringComparison.Ordinal);
+            Assert.DoesNotContain(headerCanary, representation, StringComparison.Ordinal);
+        }
+    }
+
     [Theory]
     [InlineData("DcrRequestBodyBytes", "1023")]
     [InlineData("TokenRequestBodyBytes", "1048577")]
@@ -224,6 +373,20 @@ public sealed class BridgeOptionsFactoryTests
         var options = BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values[$"Bridge:Limits:{key}"] = value), false);
 
         Assert.NotNull(options.Limits);
+    }
+
+    [Fact]
+    public void CreateUsesEveryDocumentedLimitDefault()
+    {
+        var limits = BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(), false).Limits;
+
+        Assert.Equal(32 * 1024, limits.DcrRequestBodyBytes);
+        Assert.Equal(16 * 1024, limits.TokenRequestBodyBytes);
+        Assert.Equal(TimeSpan.FromSeconds(30), limits.OAuthTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(300), limits.McpActivityTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(30), limits.ShutdownDrainTimeout);
+        Assert.Equal(100, limits.RateLimitPermitLimit);
+        Assert.Equal(TimeSpan.FromSeconds(60), limits.RateLimitWindow);
     }
 
     [Theory]

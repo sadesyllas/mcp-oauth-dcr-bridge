@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 namespace McpOAuthDcrBridge.Configuration;
 
@@ -28,11 +29,13 @@ public sealed class BridgeOptions
     /// <summary>Gets the optional allowed scope tokens; an empty set means scopes are unrestricted.</summary>
     public required ImmutableHashSet<string> AllowedScopes { get; init; }
 
-    /// <summary>Gets the configured upstream token endpoint client authentication.</summary>
-    public required UpstreamClientAuthenticationOptions ClientAuthentication { get; init; }
+    /// <summary>Gets the configured upstream token endpoint client authentication. It is excluded from JSON diagnostics because it can contain credentials.</summary>
+    [JsonIgnore]
+    public UpstreamClientAuthenticationOptions ClientAuthentication { get; init; } = null!;
 
-    /// <summary>Gets static headers applied only to upstream MCP requests.</summary>
-    public required ImmutableDictionary<string, ImmutableArray<string>> UpstreamMcpHeaders { get; init; }
+    /// <summary>Gets static headers applied only to upstream MCP requests. They are excluded from JSON diagnostics because their values can be sensitive.</summary>
+    [JsonIgnore]
+    public ImmutableDictionary<string, ImmutableArray<string>> UpstreamMcpHeaders { get; init; } = null!;
 
     /// <summary>Gets bounded request, timeout, rate-limit, and shutdown settings.</summary>
     public required BridgeLimits Limits { get; init; }
