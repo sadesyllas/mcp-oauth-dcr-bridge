@@ -84,6 +84,28 @@ public sealed class RegistrationContractTests
         Assert.Equal(first, second);
     }
 
+    [Fact]
+    public async Task RegistrationPreservesAllowedScopeAndExactQueryRedirect()
+    {
+        const string redirect = "https://client.example.test/callback?channel=%2Fone";
+        await using var application = BridgeContractHost.Create(configure: arguments =>
+        {
+            arguments.Add("--Bridge:AllowedRedirectUris:0");
+            arguments.Add(redirect);
+            arguments.Add("--Bridge:AllowedScopes:0");
+            arguments.Add("mcp.read");
+        });
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var accepted = await client.PostAsJsonAsync("/register", new { redirect_uris = new List<string> { redirect }, scope = "mcp.read" });
+        using var nearMatch = await client.PostAsJsonAsync("/register", new { redirect_uris = new List<string> { "https://client.example.test/callback?channel=/one" }, scope = "mcp.read" });
+
+        Assert.Equal(System.Net.HttpStatusCode.Created, accepted.StatusCode);
+        Assert.Contains("\"scope\":\"mcp.read\"", await accepted.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, nearMatch.StatusCode);
+        await application.StopAsync();
+    }
+
     private static async Task<string> RegisterAfterStartAsync(string json)
     {
         await using var application = BridgeContractHost.Create();
