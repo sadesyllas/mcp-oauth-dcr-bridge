@@ -2,16 +2,17 @@
 
 Reviewer-owned record for the M1–M4 review and the 2026-07-23 re-reviews.
 Resolved findings remain here for audit history while any finding is open. The
-`Reviewed` cells for M1–M4 must remain unticked until a reviewer verifies every
-fix and the complete required evidence.
+`Reviewed` cells for M2–M4 remain unticked until a reviewer verifies every fix
+and the complete required evidence for each affected milestone. M1 passed its
+scoped sixth re-review and is now reviewed.
 
-The fifth re-review inspected coder commits `1c81820` through `79e8187`. Five
-findings remain open: M1-04, M2-01, M2-03, M3-03, and M4-04. The changes
-materially improve configuration concurrency, telemetry capture, discovery
-body handling, registration errors, and hostile-input coverage, but the exact
-completion evidence remains incomplete and the MCP challenge now percent-
-encodes the metadata URL contrary to RFC 9728. Across the complete record,
-twelve findings are resolved and five remain open.
+The M1-only sixth re-review inspected coder commit `b5fee67` and resolved M1-04.
+Four findings remain open outside this review's scope: M2-01, M2-03, M3-03, and
+M4-04. M1 now has complete configuration-boundary evidence, retains its
+barrier-based in-flight immutability coverage, and restores non-null
+construction requirements while keeping JSON diagnostics credential-safe.
+Across the complete record, thirteen findings are resolved and four remain
+open.
 
 ## Fifth-pass coder completion plan
 
@@ -23,6 +24,9 @@ Work strictly in milestone order and re-anchor on `SPEC.md`, `MILESTONES.md`,
 and `code-quality` before each milestone.
 
 ### M1 — finish the validation matrix without weakening invariants
+
+**Reviewer verification: COMPLETE (2026-07-23).** Commit `b5fee67` implements
+all three items below. M1 is reviewed and requires no further coder work.
 
 1. Add table-driven cases for an absent/empty redirect list; zero and multiple
    static-header values; immutability of multiple header values; and both
@@ -87,7 +91,8 @@ and `code-quality` before each milestone.
    than implementing it under an M2 commit and renaming the test later.
 
 Run every focused suite and repository gate listed below and report exact test
-totals and commits. Review closure requires all five findings to pass together.
+totals and commits. Review closure now requires the four remaining findings to
+pass together.
 
 ## Historical fourth-pass coder completion plan
 
@@ -368,6 +373,17 @@ and cover case, port, path, query, percent-encoding, Unicode, and near-match
 behavior.
 
 ### M1-04 — The required M1 test matrix is incomplete (high)
+
+**Sixth re-review status: RESOLVED (2026-07-23).** Commit `b5fee67` adds
+absent and empty redirect-list cases, rejection of a configured header with no
+values, preservation of multiple immutable header values, and both
+minimum-minus-one and maximum-plus-one cases for every numeric limit. It
+restores `required` on `ClientAuthentication` and `UpstreamMcpHeaders` and adds
+a dedicated write-only JSON converter that omits both secret-bearing
+properties. The previously verified barrier-based request/reload test, complete
+credential cross-product, fixed public/outbound URI assertions, and
+representation canaries remain intact. Focused unit and integration suites and
+all repository gates pass.
 
 **Fifth re-review status: OPEN (2026-07-23).** Commit `1c81820` correctly
 materializes the request tasks, holds every request between two barriers,
@@ -988,3 +1004,21 @@ they do not replace the milestone-specific tests listed above.
 - Primary-standard verification against RFC 9728 Section 5.1 confirmed that
   `resource_metadata` carries the quoted metadata URL, not a percent-encoded
   replacement of the complete URL.
+
+### 2026-07-23 M1-only sixth re-review validation
+
+- Review scope contained one coder commit: `b5fee67`
+  (`M1: complete configuration validation evidence`).
+- M1-focused unit tests passed: 160 total, 0 failed, 0 skipped.
+- The integration suite passed in isolation: 15 total, 0 failed, 0 skipped.
+  An initial concurrent project run produced one timeout in the out-of-scope M2
+  OTLP collector test; the isolated integration rerun and repository-wide run
+  both passed.
+- `dotnet test McpOAuthDcrBridge.sln --configuration Release --no-restore`:
+  passed, 236 total tests (160 unit, 15 integration, 61 contract), 0 failed,
+  0 skipped.
+- `dotnet build McpOAuthDcrBridge.sln --configuration Release --no-restore`:
+  passed with 0 warnings and 0 errors.
+- `dotnet format McpOAuthDcrBridge.sln --verify-no-changes --no-restore`:
+  passed.
+- `git diff --check`: passed.
