@@ -9,9 +9,9 @@ namespace McpOAuthDcrBridge.Registration;
 /// </summary>
 public static class RegistrationEndpointExtensions
 {
-    private static readonly string[] RejectedFields = ["client_secret", "client_secret_expires_at", "jwks", "jwks_uri", "software_statement", "software_id", "software_version"];
-    private static readonly string[] SupportedGrants = ["authorization_code", "refresh_token"];
-    private static readonly string[] SupportedResponseTypes = ["code"];
+    private static readonly ImmutableHashSet<string> RejectedFields = ImmutableHashSet.Create(StringComparer.Ordinal, "client_secret", "client_secret_expires_at", "jwks", "jwks_uri", "software_statement", "software_id", "software_version");
+    private static readonly ImmutableArray<string> SupportedGrants = ImmutableArray.Create("authorization_code", "refresh_token");
+    private static readonly ImmutableArray<string> SupportedResponseTypes = ImmutableArray.Create("code");
     /// <summary>Maps the bridge's fixed-client registration endpoint.</summary>
     /// <param name="application">The application endpoint route builder.</param>
     /// <returns>The same application for composition.</returns>
@@ -42,7 +42,7 @@ public static class RegistrationEndpointExtensions
         if (metadata.ValueKind != JsonValueKind.Object || HasDuplicateProperties(metadata) || HasRejectedField(metadata) || !Strings(metadata, "redirect_uris", required: true, out var redirects) || redirects.Count == 0 || redirects.Distinct(StringComparer.Ordinal).Count() != redirects.Count) return Error();
         if (redirects.Any(redirect => !options.AllowedRedirectUris.Contains(redirect))) return Error("invalid_redirect_uri");
         if (!Strings(metadata, "response_types", required: false, out var responseTypes) || (metadata.TryGetProperty("response_types", out _) && responseTypes.Count == 0) || responseTypes.Distinct(StringComparer.Ordinal).Count() != responseTypes.Count || responseTypes.Any(type => type != "code")) return Error();
-        if (!Strings(metadata, "grant_types", required: false, out var grantTypes) || (metadata.TryGetProperty("grant_types", out _) && grantTypes.Count == 0) || grantTypes.Distinct(StringComparer.Ordinal).Count() != grantTypes.Count || grantTypes.Any(grant => !SupportedGrants.Contains(grant, StringComparer.Ordinal))) return Error();
+        if (!Strings(metadata, "grant_types", required: false, out var grantTypes) || (metadata.TryGetProperty("grant_types", out _) && grantTypes.Count == 0) || grantTypes.Distinct(StringComparer.Ordinal).Count() != grantTypes.Count || grantTypes.Any(grant => !SupportedGrants.Contains(grant))) return Error();
         if (metadata.TryGetProperty("token_endpoint_auth_method", out var authMethod) && (authMethod.ValueKind != JsonValueKind.String || authMethod.GetString() != "none")) return Error();
         string? scope = null;
         if (metadata.TryGetProperty("scope", out var scopeValue))
