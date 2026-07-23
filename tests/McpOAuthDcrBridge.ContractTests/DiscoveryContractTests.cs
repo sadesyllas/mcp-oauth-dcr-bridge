@@ -6,6 +6,7 @@ namespace McpOAuthDcrBridge.ContractTests;
 
 public sealed class DiscoveryContractTests
 {
+    private static readonly string[] ExpectedScopes = ["scope-a", "scope-b"];
     [Fact]
     public async Task DiscoveryAndChallengeUseOnlyCanonicalConfiguration()
     {
@@ -59,6 +60,26 @@ public sealed class DiscoveryContractTests
 
         Assert.Equal(System.Net.HttpStatusCode.NotAcceptable, rejectedResponse.StatusCode);
         Assert.Contains("https://bridge.example.test/mcp", await poisonedResponse.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task ProtectedResourceMetadataEmitsConfiguredScopesExactly()
+    {
+        await using var application = BridgeContractHost.Create(configure: arguments =>
+        {
+            arguments.Add("--Bridge:AllowedScopes:0");
+            arguments.Add("scope-a");
+            arguments.Add("--Bridge:AllowedScopes:1");
+            arguments.Add("scope-b");
+        });
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var response = await client.GetAsync("/.well-known/oauth-protected-resource");
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(ExpectedScopes, document.RootElement.GetProperty("scopes_supported").EnumerateArray().Select(scope => scope.GetString()));
+        Assert.Equal("header", document.RootElement.GetProperty("bearer_methods_supported")[0].GetString());
         await application.StopAsync();
     }
 }
