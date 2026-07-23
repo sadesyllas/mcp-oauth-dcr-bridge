@@ -82,4 +82,18 @@ public sealed class DiscoveryContractTests
         Assert.Equal("header", document.RootElement.GetProperty("bearer_methods_supported")[0].GetString());
         await application.StopAsync();
     }
+
+    [Fact]
+    public async Task DiscoveryRejectsUnsupportedMethodsAndKeepsJsonContentType()
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var methodResponse = await client.SendAsync(new HttpRequestMessage(HttpMethod.Post, "/.well-known/oauth-authorization-server"));
+        using var jsonResponse = await client.GetAsync("/.well-known/oauth-protected-resource");
+
+        Assert.Equal(System.Net.HttpStatusCode.MethodNotAllowed, methodResponse.StatusCode);
+        Assert.Equal("application/json", jsonResponse.Content.Headers.ContentType!.MediaType);
+        await application.StopAsync();
+    }
 }

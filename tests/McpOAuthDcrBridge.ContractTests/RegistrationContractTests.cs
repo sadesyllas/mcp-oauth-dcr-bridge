@@ -8,6 +8,34 @@ namespace McpOAuthDcrBridge.ContractTests;
 public sealed class RegistrationContractTests
 {
     [Fact]
+    public async Task MinimalRegistrationUsesCreatedJsonContractWithoutNullScope()
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var response = await client.PostAsJsonAsync("/register", new { redirect_uris = new List<string> { "https://client.example.test/callback" } });
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(System.Net.HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType!.MediaType);
+        Assert.Equal("{\"client_id\":\"fictional-client\",\"redirect_uris\":[\"https://client.example.test/callback\"],\"response_types\":[\"code\"],\"grant_types\":[\"authorization_code\",\"refresh_token\"],\"token_endpoint_auth_method\":\"none\"}", body);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task RedirectMismatchUsesBoundedRedirectError()
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var response = await client.PostAsJsonAsync("/register", new { redirect_uris = new List<string> { "https://client.example.test/other" } });
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("{\"error\":\"invalid_redirect_uri\",\"error_description\":\"invalid client metadata\"}", await response.Content.ReadAsStringAsync());
+        await application.StopAsync();
+    }
+
+    [Fact]
     public async Task RegistrationIsRateLimited()
     {
         await using var application = BridgeContractHost.Create(permitLimit: 1);
