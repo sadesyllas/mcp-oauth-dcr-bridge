@@ -8,6 +8,213 @@ fix and the complete required evidence.
 The third re-review leaves five findings open. M3-02 is now resolved. Across the
 complete record, twelve findings are resolved and five remain open.
 
+## Coder completion plan
+
+This section is the authoritative implementation checklist for the five findings
+whose latest status is `OPEN`. Older finding text remains below as review
+history. The coder must implement and commit the fixes, but must not edit this
+file, change finding statuses, tick `Reviewed`, or delete `REVIEW.md`; those are
+reviewer-only actions.
+
+Work strictly in milestone order: M1, M2, M3, then M4. Re-read `SPEC.md`,
+`MILESTONES.md`, and the `code-quality` skill before each milestone. Keep every
+type and public member documented, keep one top-level type per file, remove
+duplication, use immutable global data only, and make each commit independently
+buildable.
+
+### 1. Complete M1-04 — configuration and request-time immutability
+
+1. Expand
+   `tests/McpOAuthDcrBridge.UnitTests/Configuration/BridgeOptionsFactoryTests.cs`
+   into table-driven matrices that cover:
+   - every required key: external base URL, all three upstream URLs, client ID,
+     at least one redirect URI, and client-authentication method;
+   - each fixed URL rule: missing/empty, relative, non-HTTPS production,
+     user-info, query, fragment, permitted loopback development HTTP, and
+     rejected remote/deceptive development HTTP;
+   - redirect preservation and rejection boundaries for case, default ports,
+     dot segments, query text, escaping, fragments, user-info, duplicates, and
+     production/development HTTP;
+   - valid and invalid OAuth scope-token and HTTP field-name/value boundaries,
+     case-insensitive duplicate headers, forbidden headers, zero/multiple header
+     values, and immutable multiple values;
+   - default, minimum, maximum, minimum-minus-one, maximum-plus-one, and
+     nonnumeric input for every limit;
+   - the full credential cross-product. For `none`, only no secret/no
+     certificate is valid. For each secret method, only secret/no certificate
+     is valid. For `private_key_jwt`, only certificate/no secret is valid.
+     Explicitly test neither, secret only, certificate only, and both for every
+     method, plus an unknown method.
+2. In `CreateResolvesCanonicalPublicUrisAndFixedOutboundDestinations`, assert
+   the exact authorization, token, and MCP upstream URIs, all canonical public
+   URIs, and the fixed client/authentication values—not only the authorization
+   URI.
+3. Replace the lazy concurrency arrangement in
+   `ConfigurationStartupTests.RunningRequestsRetainResolvedOptionsWhenAProviderReloads`.
+   Materialize the request tasks with `ToArray()` and use a test-only mapped
+   endpoint plus two `TaskCompletionSource` barriers:
+   - every handler reads the injected singleton `BridgeOptions`, records a
+     before-snapshot, signals that it has entered, and waits;
+   - the test waits until all handlers are in flight, mutates and reloads the
+     provider, then releases the handlers;
+   - every handler records an after-snapshot;
+   - assert before/after snapshots retain every public URI, all three outbound
+     URIs, client ID, authentication mode/credential, redirects, scopes, limits,
+     and configured header values.
+   Send hostile `Host`, `X-Forwarded-Host`, `X-Forwarded-Proto`, and RFC
+   `Forwarded` headers on these requests. Do not return credentials/header
+   values in HTTP responses or logs.
+4. Add representation canaries for a client secret, certificate path, and
+   innocuously named static header value. Exercise every application-exposed
+   diagnostic/serialization representation and every validation failure that
+   can mention their keys. Assert the canaries never occur. If ordinary JSON or
+   string serialization of the validated options exposes a secret-bearing
+   property, make that representation explicitly safe rather than weakening the
+   test.
+5. Commit the M1 work separately, for example:
+   `M1: complete configuration and in-flight immutability evidence`.
+
+M1 is ready for re-review only when the focused unit/integration tests prove all
+of the above and no test relies on scheduling luck or a lazy task sequence.
+
+### 2. Complete M2-01 — one reusable safe telemetry boundary
+
+1. In `src/McpOAuthDcrBridge/Telemetry/TelemetryRedactor.cs`, remove the unused
+   mutable `SensitiveHeaders` set. Because the design emits no header values,
+   also remove `HeaderValue`/`RedactedValue` and their tests unless an actual
+   production emission path uses them. Do not retain dead redaction APIs.
+2. Move the log-category/level decision out of the inline predicate in
+   `BridgeLoggingExtensions` and into one central, pure safe-telemetry policy.
+   The policy must:
+   - allow only explicitly registered bridge-owned bounded event categories;
+   - reject framework, arbitrary, and future categories by default;
+   - use a switch, frozen/immutable set, or equivalent immutable definition;
+   - be reusable when later milestones add safe OAuth/MCP events, rather than
+     being hard-coded only to `RequestTelemetryMiddleware`.
+3. Keep configuration-error formatting in that central policy and ensure it
+   receives keys/reason codes only, never raw configured values.
+4. Add unit tests for every allowed category/level and representative framework,
+   arbitrary, and near-match categories. Add a capture test proving a rejected
+   category cannot reach any registered provider even when it contains an
+   exception or query canary.
+5. Commit this independently, for example:
+   `M2: centralize the safe telemetry emission policy`.
+
+### 3. Complete M2-03 — exact telemetry and exporter evidence
+
+1. Turn `TelemetryCaptureContractTests` into a reusable capture harness. Capture:
+   - structured log state as named key/value fields, not only formatted text;
+   - stopped bridge activities, including status and every tag;
+   - both `long` counter/up-down-counter and `double` histogram measurements;
+   - response and health status, content type, headers, and body.
+   Assert each collection is nonempty before inspecting it so assertions cannot
+   pass vacuously.
+2. Assert exact contracts:
+   - completion logs contain only the expected template and the fields `Route`,
+     `Method`, `StatusCode`, `StatusClass`, `Result`,
+     `ElapsedMilliseconds`, and `CorrelationId`;
+   - request spans contain exactly the bounded route, method, result,
+     correlation, and numeric-status tags with the expected error status;
+   - `bridge.requests` and `bridge.request.duration` are both emitted with
+     exactly `route` and `status` tags;
+   - `/health/live` and `/health/ready` have separately locked status,
+     content-type, headers, and body contracts and perform no outbound call.
+3. Drive at least 100 unique hostile paths, methods, queries, Hosts, forwarded
+   headers, and correlation candidates. Assert emitted metric tag keys and
+   values remain within the fixed route/status vocabularies and that the number
+   of distinct metric series is bounded independently of input cardinality.
+4. Build one canary matrix covering client credentials, certificate paths,
+   configured static header values, Authorization/Cookie/custom headers, OAuth
+   query fields, JSON bodies, exceptions, invalid correlation IDs, responses,
+   and both health results. Flatten every captured log field, activity
+   tag/event/baggage item, metric tag, response, exception, and health artifact;
+   assert every canary is absent from every artifact.
+5. Add direct OTLP-mode tests with a local fake collector:
+   - no configured endpoint: force provider flush/disposal and assert the
+     collector receives no export;
+   - configured endpoint: assert trace and metric exports arrive while the
+     application response contract is unchanged;
+   - failing collector (bounded 500/reset/unreachable behavior): force export,
+     assert application requests still succeed, and assert exporter diagnostics
+     contain no canary.
+   Automated tests must stay local and deterministic; do not use the internet or
+   rely only on service-registration inspection.
+6. Reuse the harness from M4 rather than copying logger/listener code. Put any
+   reusable test types in focused files and keep the setup DRY.
+7. Commit this independently, for example:
+   `M2: complete exact telemetry and OTLP isolation evidence`.
+
+### 4. Complete M3-03 — remaining discovery contracts
+
+1. Refactor `DiscoveryContractTests` around a shared helper that sends the same
+   poisoned request to each metadata path. For both protected-resource and
+   authorization-server metadata, compare the entire status, content type,
+   cache policy, and JSON body with an ordinary request while supplying:
+   `Host`, `X-Forwarded-Host`, `X-Forwarded-Proto`, RFC `Forwarded`, bearer
+   caller identity, and arbitrary query input.
+2. Resolve the milestone's request-limit requirement explicitly. The current
+   specification does not define a numeric discovery-body limit, so use the
+   SPEC-change protocol first. The recommended narrow contract is: metadata
+   `GET` requests accept no nonempty body; a declared nonzero body or
+   transfer-encoded body is rejected with a documented bounded status without
+   buffering or logging it. Do not apply this rule to `/mcp`, whose future
+   streaming body contract is different. Add declared-length and chunked-body
+   tests with canaries, plus exact error status/body assertions.
+3. Build an exact challenge matrix for `GET`, `POST`, and `DELETE /mcp`:
+   - missing and every malformed/alternate Authorization form returns 401,
+     exactly one safely serialized `WWW-Authenticate` value, and the documented
+     empty/bounded body;
+   - a valid bearer credential does not receive the local challenge;
+   - canonical base URLs with nontrivial safe paths/escaping still produce the
+     exact encoded `resource_metadata` parameter.
+   Construct the challenge with platform header primitives; do not concatenate
+   unescaped quoted parameter text.
+4. Keep all metadata/capability assertions exact and absence-based so adding an
+   extra grant, auth method, PKCE method, or field fails the test.
+5. Commit any required SPEC change first, then the implementation/tests in a
+   separate commit such as:
+   `M3: complete discovery limit and challenge contracts`.
+
+### 5. Complete M4-04 — registration canary evidence
+
+1. In the shared telemetry harness, send registration canaries through valid
+   JSON content:
+   `new StringContent(json, Encoding.UTF8, "application/json")`. Include separate
+   cases for a smuggled credential/body canary, invalid redirect canary,
+   unsupported scope/error canary, Authorization/header canary, and query
+   canary. Ensure the DCR handler parses the JSON before rejecting it.
+2. Assert every registration error response has the exact expected status,
+   content type, and bounded JSON, and contains none of the canaries.
+3. For every canary, inspect every structured log field, activity
+   tag/event/baggage item, `long` metric, `double` duration metric, response
+   artifact, and health artifact. Do not check only the query canary in
+   spans/metrics.
+4. Assert the registration activity and both request metrics were actually
+   captured, with route `registration`, bounded status class, and failure
+   result. Reuse the M2 capture fixture; do not create a second telemetry
+   implementation.
+5. Commit separately, for example:
+   `M4: complete registration telemetry canary evidence`.
+
+### Required completion gates
+
+Run focused suites after each milestone, then run all repository gates:
+
+```text
+dotnet test tests/McpOAuthDcrBridge.UnitTests/McpOAuthDcrBridge.UnitTests.csproj --configuration Release --no-restore
+dotnet test tests/McpOAuthDcrBridge.IntegrationTests/McpOAuthDcrBridge.IntegrationTests.csproj --configuration Release --no-restore
+dotnet test tests/McpOAuthDcrBridge.ContractTests/McpOAuthDcrBridge.ContractTests.csproj --configuration Release --no-restore
+dotnet test McpOAuthDcrBridge.sln --configuration Release --no-restore
+dotnet build McpOAuthDcrBridge.sln --configuration Release --no-restore
+dotnet format McpOAuthDcrBridge.sln --verify-no-changes --no-restore
+git diff --check
+```
+
+The coder's handoff must identify the commit for each numbered item and report
+the exact test totals. The reviewer will then re-run the gates, re-check each
+artifact, mark findings resolved, tick M1–M4 `Reviewed`, delete `REVIEW.md`, and
+commit review closure only if every item passes.
+
 ## M1 — Immutable configuration and trust boundaries
 
 ### M1-01 — Local-development HTTP is not limited to local hosts (high)
