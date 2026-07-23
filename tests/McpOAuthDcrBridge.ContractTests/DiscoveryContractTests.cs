@@ -50,6 +50,8 @@ public sealed class DiscoveryContractTests
     [Theory]
     [InlineData("application/json;q=0")]
     [InlineData("text/html, application/json;q=0")]
+    [InlineData("application/json;q=0, */*;q=1")]
+    [InlineData("application/*;q=0, */*;q=1")]
     public async Task MetadataHonorsExplicitJsonExclusion(string accept)
     {
         await using var application = BridgeContractHost.Create();
@@ -67,6 +69,8 @@ public sealed class DiscoveryContractTests
     [InlineData("Application/Json")]
     [InlineData("application/json;q=0.1, text/html;q=1")]
     [InlineData("*/*;q=0.5")]
+    [InlineData("application/json;q=1, */*;q=0")]
+    [InlineData("application/*;q=0.1, */*;q=1")]
     public async Task MetadataAcceptsPositiveJsonCompatibleRanges(string accept)
     {
         await using var application = BridgeContractHost.Create();

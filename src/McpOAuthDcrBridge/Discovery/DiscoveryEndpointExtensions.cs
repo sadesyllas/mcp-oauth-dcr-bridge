@@ -20,11 +20,29 @@ public static class DiscoveryEndpointExtensions
 
     private static bool AcceptsJson(HttpRequest request)
     {
-        if (request.Headers.Accept.Count == 0) return true;
-        return request.GetTypedHeaders().Accept!
-            .Where(value => value.Quality.GetValueOrDefault(1) > 0)
-            .Any(value => value.MediaType.Value is { } mediaType && (mediaType.Equals("*/*", StringComparison.Ordinal) || mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase)));
+        var acceptedMediaTypes = request.GetTypedHeaders().Accept;
+        if (acceptedMediaTypes is not { Count: > 0 }) return true;
+
+        var matchingRanges = acceptedMediaTypes
+            .Select(range => new { Range = range, Specificity = JsonSpecificity(range.MediaType.Value) })
+            .Where(candidate => candidate.Specificity >= 0)
+            .ToArray();
+        if (matchingRanges.Length == 0) return false;
+
+        var mostSpecificMatch = matchingRanges.Max(candidate => candidate.Specificity);
+        return matchingRanges
+            .Where(candidate => candidate.Specificity == mostSpecificMatch)
+            .Max(candidate => candidate.Range.Quality.GetValueOrDefault(1)) > 0;
     }
+
+    private static int JsonSpecificity(string? mediaType) => mediaType switch
+    {
+        null => -1,
+        _ when mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase) => 2,
+        _ when mediaType.Equals("application/*", StringComparison.OrdinalIgnoreCase) => 1,
+        "*/*" => 0,
+        _ => -1,
+    };
 
     private static bool HasBearerCredential(HttpRequest request)
     {
