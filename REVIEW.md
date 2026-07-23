@@ -2,19 +2,18 @@
 
 Reviewer-owned record for the M1–M4 review and the 2026-07-23 re-reviews.
 Resolved findings remain here for audit history while any finding is open. The
-`Reviewed` cells for M2–M4 remain unticked until a reviewer verifies every fix
+`Reviewed` cells for M3–M4 remain unticked until a reviewer verifies every fix
 and the complete required evidence for each affected milestone. M1 passed its
-scoped sixth re-review and is now reviewed.
+scoped sixth re-review, and M2 was explicitly accepted by the project owner.
 
-The scoped M2 sixth re-review inspected coder commit `5f28768`. It resolves
-M2-01, but M2-03 remains open because the new assertions still leave declared
-canaries unused, representative request and health contracts incomplete, and
-OTLP signal/failure evidence ambiguous. Three findings remain open: M2-03,
-M3-03, and M4-04. M1 now has complete configuration-boundary evidence, retains
-its barrier-based in-flight immutability coverage, and restores non-null
-construction requirements while keeping JSON diagnostics credential-safe.
-Across the complete record, fourteen findings are resolved and three remain
-open.
+The scoped M2 sixth re-review inspected coder commit `5f28768` and resolved
+M2-01 while identifying residual evidence gaps in M2-03. On 2026-07-23, the
+project owner explicitly accepted responsibility for those gaps and directed
+that M2 be resolved. M2 is therefore reviewed by owner acceptance. Two findings
+remain open: M3-03 and M4-04. M1 retains its complete
+configuration-boundary evidence and M2 retains the technical record of the
+accepted gaps below. Across the complete record, fifteen findings are resolved
+and two remain open.
 
 ## Fifth-pass coder completion plan
 
@@ -41,6 +40,11 @@ all three items below. M1 is reviewed and requires no further coder work.
    cross-product, fixed URI assertions, and representation canaries.
 
 ### M2 — make policy and captured evidence exact and non-vacuous
+
+**Project-owner acceptance: COMPLETE (2026-07-23).** The project owner
+explicitly directed that M2 be resolved and accepted responsibility for the
+remaining M2-03 evidence gaps. No further M2 coder work is required for review
+closure.
 
 1. Make `SafeTelemetryPolicy.IsEnabled` reject `LogLevel.None` and undefined
    enum values explicitly. Test every `LogLevel` value, including `Critical`
@@ -93,7 +97,7 @@ all three items below. M1 is reviewed and requires no further coder work.
    than implementing it under an M2 commit and renaming the test later.
 
 Run every focused suite and repository gate listed below and report exact test
-totals and commits. Review closure now requires the three remaining findings to
+totals and commits. Review closure now requires the two remaining findings to
 pass together.
 
 ## Historical fourth-pass coder completion plan
@@ -546,6 +550,12 @@ classification. Record exceptions as bounded failure categories and observe the
 final status produced by a safe exception boundary.
 
 ### M2-03 — The required telemetry evidence is absent (high)
+
+**Project-owner acceptance status: RESOLVED (2026-07-23).** The project owner
+explicitly accepted responsibility for the residual non-vacuous evidence gaps
+documented in the sixth re-review and directed that M2 be resolved. This status
+records an explicit risk acceptance rather than a claim that the technical
+observations below were remediated. M2 is marked Reviewed on that basis.
 
 **Sixth re-review status: OPEN (2026-07-23).** Commit `5f28768` improves the
 shared capture model by retaining activity events/baggage, logger event and
