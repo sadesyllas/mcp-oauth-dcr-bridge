@@ -38,15 +38,15 @@ public sealed class TelemetryCaptureContractTests
         application.MapGet("/test-throw", (HttpContext _) => throw new InvalidOperationException(exceptionCanary));
         await application.StartAsync();
         using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
-        using var malformedRequest = new HttpRequestMessage(HttpMethod.Post, $"/unknown?secret={queryCanary}")
+        using var malformedRequest = new HttpRequestMessage(HttpMethod.Post, $"/register?secret={queryCanary}")
         {
-            Content = new StringContent(bodyCanary),
+            Content = new StringContent($"{{\"redirect_uris\":[\"https://client.example.test/callback\"],\"client_secret\":\"{bodyCanary}\"}}"),
         };
         malformedRequest.Headers.TryAddWithoutValidation("Authorization", $"Bearer {headerCanary}");
         using var malformedResponse = await client.SendAsync(malformedRequest);
         using var exceptionResponse = await client.GetAsync($"/test-throw?secret={queryCanary}");
 
-        Assert.Equal(System.Net.HttpStatusCode.NotFound, malformedResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, malformedResponse.StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.InternalServerError, exceptionResponse.StatusCode);
         Assert.All(logs.Entries, entry =>
         {
@@ -57,7 +57,7 @@ public sealed class TelemetryCaptureContractTests
             Assert.DoesNotContain(bodyCanary, entry.ToString(), StringComparison.Ordinal);
             Assert.DoesNotContain(exceptionCanary, entry.ToString(), StringComparison.Ordinal);
         });
-        Assert.Contains(logs.Entries, entry => entry.Message.Contains("404", StringComparison.Ordinal) && entry.Message.Contains("failure", StringComparison.Ordinal));
+        Assert.Contains(logs.Entries, entry => entry.Message.Contains("400", StringComparison.Ordinal) && entry.Message.Contains("failure", StringComparison.Ordinal));
         Assert.Contains(logs.Entries, entry => entry.Message.Contains("500", StringComparison.Ordinal) && entry.Message.Contains("failure", StringComparison.Ordinal));
         Assert.All(activities, activity => Assert.DoesNotContain(queryCanary, FormatTags(activity.Tags), StringComparison.Ordinal));
         Assert.All(measurements, measurement => Assert.DoesNotContain(queryCanary, measurement.Tags, StringComparison.Ordinal));
