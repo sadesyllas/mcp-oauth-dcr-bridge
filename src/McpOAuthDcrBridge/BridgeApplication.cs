@@ -1,3 +1,5 @@
+using McpOAuthDcrBridge.Configuration;
+
 namespace McpOAuthDcrBridge;
 
 /// <summary>
@@ -13,6 +15,8 @@ public static class BridgeApplication
     public static WebApplication Build(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
+        var bridgeOptions = BridgeOptionsFactory.Create(builder.Configuration, builder.Environment.IsDevelopment());
+        builder.Services.AddSingleton(bridgeOptions);
 
         return builder.Build();
     }
