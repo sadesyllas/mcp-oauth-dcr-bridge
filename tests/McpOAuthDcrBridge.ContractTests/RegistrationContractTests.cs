@@ -73,6 +73,11 @@ public sealed class RegistrationContractTests
     [Theory]
     [InlineData("https://client.example.test/other")]
     [InlineData("https://client.example.test/callback/")]
+    [InlineData("http://client.example.test/callback")]
+    [InlineData("https://CLIENT.example.test/callback")]
+    [InlineData("https://client.example.test:443/callback")]
+    [InlineData("https://client.example.test/callback?x=1")]
+    [InlineData("https://client.example.test/call%62ack")]
     public async Task InvalidRedirectAndSmuggledCredentialsAreRejected(string redirectUri)
     {
         await using var application = BridgeContractHost.Create();
@@ -82,6 +87,23 @@ public sealed class RegistrationContractTests
 
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
         Assert.DoesNotContain("canary-secret", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        await application.StopAsync();
+    }
+
+    [Theory]
+    [InlineData("{")]
+    [InlineData("{\"redirect_uris\":[]}")]
+    [InlineData("{\"redirect_uris\":[\"https://client.example.test/callback\"],\"token_endpoint_auth_method\":\"client_secret_post\"}")]
+    [InlineData("{\"redirect_uris\":[\"https://client.example.test/callback\"],\"response_types\":[\"token\"]}")]
+    [InlineData("{\"redirect_uris\":[\"https://client.example.test/callback\"],\"grant_types\":[\"implicit\"]}")]
+    public async Task RegistrationRejectsMalformedOrUnsupportedClientMetadata(string json)
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var response = await client.PostAsync("/register", new StringContent(json, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
         await application.StopAsync();
     }
 
