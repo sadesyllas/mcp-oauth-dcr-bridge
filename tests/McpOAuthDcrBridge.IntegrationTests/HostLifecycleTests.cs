@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using McpOAuthDcrBridge;
+using McpOAuthDcrBridge.IntegrationTests.Configuration;
 using Xunit;
 
 namespace McpOAuthDcrBridge.IntegrationTests;
@@ -11,7 +12,7 @@ public sealed class HostLifecycleTests
     public async Task HostStartsWithoutProductEndpointsAndStopsGracefully()
     {
         using var cancellation = new CancellationTokenSource();
-        await using var application = BridgeApplication.Build(["--urls", "http://127.0.0.1:0"]);
+        await using var application = BridgeApplication.Build(ValidBridgeCommandLine.Arguments);
         var applicationLifetime = application.Services.GetRequiredService<IHostApplicationLifetime>();
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

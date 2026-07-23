@@ -57,7 +57,10 @@ The restore gate enables NuGet auditing and fails the build for high or critical
 known vulnerabilities. The test command is the single repository-level command
 for all unit, integration, and contract suites.
 
-The scaffold intentionally exposes no product endpoints. Run it locally with:
+M1 requires a complete `Bridge` configuration contract at startup. See
+[`docs/configuration.md`](docs/configuration.md) for the schema, secret-provider
+guidance, fictional example, and local-development HTTP exception. With a valid
+configuration source, run the host locally with:
 
 ```sh
 dotnet run --project src/McpOAuthDcrBridge/McpOAuthDcrBridge.csproj
