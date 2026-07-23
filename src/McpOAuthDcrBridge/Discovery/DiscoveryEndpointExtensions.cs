@@ -18,12 +18,24 @@ public static class DiscoveryEndpointExtensions
         return application;
     }
 
-    private static bool AcceptsJson(HttpRequest request) => request.Headers.Accept.Count == 0 || request.GetTypedHeaders().Accept!.Any(value => value.MediaType.Value is "*/*" or "application/json");
+    private static bool AcceptsJson(HttpRequest request)
+    {
+        if (request.Headers.Accept.Count == 0) return true;
+        return request.GetTypedHeaders().Accept!
+            .Where(value => value.Quality.GetValueOrDefault(1) > 0)
+            .Any(value => value.MediaType.Value is { } mediaType && (mediaType.Equals("*/*", StringComparison.Ordinal) || mediaType.Equals("application/json", StringComparison.OrdinalIgnoreCase)));
+    }
 
     private static bool HasBearerCredential(HttpRequest request)
     {
         var values = request.Headers.Authorization;
-        return values.Count == 1 && values[0] is { } value && value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) && value.Length > "Bearer ".Length && !char.IsWhiteSpace(value["Bearer ".Length]);
+        if (values.Count != 1 || values[0] is not { } value || !value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return false;
+        var token = value["Bearer ".Length..];
+        if (token.Length == 0) return false;
+        var paddingIndex = token.IndexOf('=');
+        var core = paddingIndex < 0 ? token : token[..paddingIndex];
+        var padding = paddingIndex < 0 ? string.Empty : token[paddingIndex..];
+        return core.Length > 0 && core.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '.' or '_' or '~' or '+' or '/') && padding.All(character => character == '=');
     }
 
     private static DiscoveryResult MetadataResult(object metadata) => new(StatusCodes.Status200OK, metadata, "public, max-age=300");

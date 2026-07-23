@@ -13,6 +13,8 @@ public static class BridgeLoggingExtensions
     public static void ConfigureBridgeLogging(this ILoggingBuilder logging, bool isDevelopment)
     {
         logging.ClearProviders();
+        logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+        logging.AddFilter("Microsoft.AspNetCore.Diagnostics.ExceptionHandlerMiddleware", LogLevel.None);
         if (isDevelopment)
         {
             logging.AddSimpleConsole(options => options.SingleLine = true);

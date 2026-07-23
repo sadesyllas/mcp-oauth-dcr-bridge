@@ -31,6 +31,9 @@ public sealed class DiscoveryContractTests
     [InlineData("Basic abc")]
     [InlineData("Bearer")]
     [InlineData("Bearer ")]
+    [InlineData("Bearer token with-space")]
+    [InlineData("Bearer token, Bearer another")]
+    [InlineData("Bearer ==")]
     public async Task McpChallengesMissingAndMalformedBearerAuthorization(string authorization)
     {
         await using var application = BridgeContractHost.Create();
@@ -41,6 +44,22 @@ public sealed class DiscoveryContractTests
         using var response = await client.SendAsync(request);
 
         Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+        await application.StopAsync();
+    }
+
+    [Theory]
+    [InlineData("application/json;q=0")]
+    [InlineData("text/html, application/json;q=0")]
+    public async Task MetadataHonorsExplicitJsonExclusion(string accept)
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/.well-known/oauth-authorization-server");
+        request.Headers.TryAddWithoutValidation("Accept", accept);
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(System.Net.HttpStatusCode.NotAcceptable, response.StatusCode);
         await application.StopAsync();
     }
 

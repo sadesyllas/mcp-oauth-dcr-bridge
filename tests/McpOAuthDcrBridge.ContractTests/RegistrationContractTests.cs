@@ -78,6 +78,7 @@ public sealed class RegistrationContractTests
     [InlineData("https://client.example.test:443/callback")]
     [InlineData("https://client.example.test/callback?x=1")]
     [InlineData("https://client.example.test/call%62ack")]
+    [InlineData("https://client.example.test/callback#fragment")]
     public async Task InvalidRedirectAndSmuggledCredentialsAreRejected(string redirectUri)
     {
         await using var application = BridgeContractHost.Create();
@@ -178,11 +179,12 @@ public sealed class RegistrationContractTests
         var tasks = Enumerable.Range(0, 25).Select(async _ =>
         {
             using var response = await client.PostAsJsonAsync("/register", new { redirect_uris = new List<string> { "https://client.example.test/callback" } });
-            return await response.Content.ReadAsStringAsync();
+            return (response.StatusCode, Body: await response.Content.ReadAsStringAsync());
         });
         var responses = await Task.WhenAll(tasks);
 
-        Assert.Single(responses.Distinct(StringComparer.Ordinal));
+        Assert.All(responses, response => Assert.Equal(System.Net.HttpStatusCode.Created, response.StatusCode));
+        Assert.Single(responses.Select(response => response.Body).Distinct(StringComparer.Ordinal));
         await application.StopAsync();
     }
 

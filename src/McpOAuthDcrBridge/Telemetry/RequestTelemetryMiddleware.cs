@@ -47,13 +47,15 @@ public sealed partial class RequestTelemetryMiddleware
         {
             stopwatch.Stop();
             var statusClass = TelemetryRedactor.ResultCategory(context.Response.StatusCode);
+            var result = context.Response.StatusCode >= StatusCodes.Status400BadRequest ? "failure" : "success";
             activity?.SetTag("http.response.status_code", context.Response.StatusCode);
+            activity?.SetTag("bridge.result", result);
             BridgeTelemetry.RequestCount.Add(1, new KeyValuePair<string, object?>("route", route), new KeyValuePair<string, object?>("status", statusClass));
-            BridgeTelemetry.RequestDurationMilliseconds.Record(stopwatch.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("route", route));
-            LogRequestCompleted(logger, route, method, statusClass, stopwatch.Elapsed.TotalMilliseconds, correlation?.Value);
+            BridgeTelemetry.RequestDurationMilliseconds.Record(stopwatch.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("route", route), new KeyValuePair<string, object?>("status", statusClass));
+            LogRequestCompleted(logger, route, method, context.Response.StatusCode, statusClass, result, stopwatch.Elapsed.TotalMilliseconds, correlation?.Value);
         }
     }
 
-    [LoggerMessage(LogLevel.Information, "Bridge request {Method} completed for {Route} with {StatusClass} in {ElapsedMilliseconds} ms, correlation {CorrelationId}")]
-    private static partial void LogRequestCompleted(ILogger logger, string route, string method, string statusClass, double elapsedMilliseconds, string? correlationId);
+    [LoggerMessage(LogLevel.Information, "Bridge request {Method} completed for {Route} with {StatusCode} ({StatusClass}, {Result}) in {ElapsedMilliseconds} ms, correlation {CorrelationId}")]
+    private static partial void LogRequestCompleted(ILogger logger, string route, string method, int statusCode, string statusClass, string result, double elapsedMilliseconds, string? correlationId);
 }

@@ -120,6 +120,9 @@ public sealed class BridgeOptionsFactoryTests
     [InlineData("Bad Header", "safe value", false)]
     [InlineData("Bad()", "safe value", false)]
     [InlineData("X-Valid", "bad\r\nvalue", false)]
+    [InlineData("X-Valid", "obs\u0080text", true)]
+    [InlineData("X-Valid", "bad\u0100text", false)]
+    [InlineData("X-Valid", "bad\ud800text", false)]
     public void CreateEnforcesHttpHeaderGrammar(string name, string value, bool valid)
     {
         var configuration = ValidBridgeConfiguration.Create(values =>
