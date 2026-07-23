@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Net;
 using Microsoft.Extensions.Configuration;
 
 namespace McpOAuthDcrBridge.Configuration;
@@ -84,8 +85,8 @@ public static class BridgeOptionsFactory
         var result = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
         foreach (var value in values)
         {
-            var uri = ParseUri(value, key, allowHttp);
-            if (!string.IsNullOrEmpty(uri.Fragment) || !result.Add(uri.AbsoluteUri))
+            ValidateRedirectUri(value, key, allowHttp);
+            if (!result.Add(value))
             {
                 throw Invalid(key, "contains a fragment or duplicate URI");
             }
@@ -99,7 +100,7 @@ public static class BridgeOptionsFactory
         var result = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
         foreach (var scope in section.Get<string[]>() ?? [])
         {
-            if (string.IsNullOrWhiteSpace(scope) || scope.Any(char.IsWhiteSpace) || !result.Add(scope))
+            if (!OAuthScopeToken.IsValid(scope) || !result.Add(scope))
             {
                 throw Invalid("AllowedScopes", "contains an empty, whitespace-containing, or duplicate scope token");
             }
@@ -120,7 +121,7 @@ public static class BridgeOptionsFactory
             }
 
             var values = header.GetSection("Values").Get<string[]>() ?? [];
-            if (values.Length == 0 || values.Any(string.IsNullOrEmpty) || !result.TryAdd(name, values.ToImmutableArray()))
+            if (values.Length == 0 || values.Any(value => !HttpFieldValue.IsValid(value)) || !result.TryAdd(name, values.ToImmutableArray()))
             {
                 throw Invalid($"Upstream:McpHeaders:{header.Key}", "must have nonempty values and a unique name");
             }
@@ -177,7 +178,7 @@ public static class BridgeOptionsFactory
 
     private static Uri ParseUri(string? value, string key, bool allowHttp)
     {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0 || (uri.Scheme != Uri.UriSchemeHttps && !(allowHttp && uri.Scheme == Uri.UriSchemeHttp)))
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0 || !HasPermittedScheme(uri, allowHttp))
         {
             throw Invalid(key, "must be an absolute HTTPS URI without credentials, query, or fragment");
         }
@@ -185,13 +186,25 @@ public static class BridgeOptionsFactory
         return uri;
     }
 
+    private static void ValidateRedirectUri(string? value, string key, bool allowHttp)
+    {
+        if (string.IsNullOrWhiteSpace(value) || !Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.UserInfo.Length > 0 || uri.Fragment.Length > 0 || !HasPermittedScheme(uri, allowHttp))
+        {
+            throw Invalid(key, "must be an absolute HTTPS redirect URI without credentials or fragment");
+        }
+    }
+
+    private static bool HasPermittedScheme(Uri uri, bool allowHttp) => uri.Scheme == Uri.UriSchemeHttps || (allowHttp && uri.Scheme == Uri.UriSchemeHttp && IsLoopbackHost(uri.Host));
+
+    private static bool IsLoopbackHost(string host) => host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || (IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address));
+
     private static string RequiredText(IConfiguration configuration, string key)
     {
         var value = configuration[key];
         return !string.IsNullOrWhiteSpace(value) ? value : throw Invalid(key, "is required");
     }
 
-    private static bool IsHeaderName(string name) => name.Length > 0 && name.All(character => character is >= '!' and <= '~' && character != ':');
+    private static bool IsHeaderName(string name) => HttpFieldName.IsValid(name);
 
     private static bool TryParseAuthenticationMethod(string value, out UpstreamClientAuthenticationMethod method)
     {

@@ -49,10 +49,19 @@ public sealed class BridgeOptionsFactoryTests
         Assert.Equal("http", BridgeOptionsFactory.Create(configuration, true).ExternalBaseUri.Scheme);
     }
 
+    [Fact]
+    public void CreatePreservesQueryBearingRedirectUrisWithoutNormalization()
+    {
+        const string redirectUri = "https://CLIENT.example.test:443/callback?return=%2Fone";
+        var options = BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values["Bridge:AllowedRedirectUris:0"] = redirectUri), false);
+
+        Assert.Contains(redirectUri, options.AllowedRedirectUris);
+    }
+
     [Theory]
     [InlineData("https://client.example.test/callback#fragment")]
-    [InlineData("https://client.example.test/callback?query=true")]
-    public void CreateRejectsNonExactRedirectUris(string redirectUri)
+    [InlineData("https://user@client.example.test/callback")]
+    public void CreateRejectsUnsafeRedirectUris(string redirectUri)
     {
         var exception = Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values["Bridge:AllowedRedirectUris:0"] = redirectUri), false));
 
@@ -67,6 +76,65 @@ public sealed class BridgeOptionsFactoryTests
 
         Assert.Contains("AllowedRedirectUris", duplicateRedirect.Message, StringComparison.Ordinal);
         Assert.Contains("AllowedScopes", invalidScope.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("http://remote.example.test/callback")]
+    [InlineData("http://192.0.2.2/callback")]
+    [InlineData("http://[::2]/callback")]
+    [InlineData("http://localhost.evil.test/callback")]
+    public void CreateRejectsNonLoopbackDevelopmentHttpUris(string uri)
+    {
+        var configuration = ValidBridgeConfiguration.Create(values =>
+        {
+            values["Bridge:AllowHttpForLocalDevelopment"] = "true";
+            values["Bridge:ExternalBaseUrl"] = uri;
+        });
+
+        Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(configuration, true));
+    }
+
+    [Theory]
+    [InlineData("valid.scope")]
+    [InlineData("quote\"scope")]
+    [InlineData("slash\\scope")]
+    [InlineData("scope space")]
+    [InlineData("scope\u0001")]
+    public void CreateEnforcesOAuthScopeGrammar(string scope)
+    {
+        var configuration = ValidBridgeConfiguration.Create(values => values["Bridge:AllowedScopes:0"] = scope);
+
+        if (scope == "valid.scope")
+        {
+            Assert.Contains(scope, BridgeOptionsFactory.Create(configuration, false).AllowedScopes);
+        }
+        else
+        {
+            Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(configuration, false));
+        }
+    }
+
+    [Theory]
+    [InlineData("X-Valid", "safe value", true)]
+    [InlineData("Bad Header", "safe value", false)]
+    [InlineData("Bad()", "safe value", false)]
+    [InlineData("X-Valid", "bad\r\nvalue", false)]
+    public void CreateEnforcesHttpHeaderGrammar(string name, string value, bool valid)
+    {
+        var configuration = ValidBridgeConfiguration.Create(values =>
+        {
+            values["Bridge:Upstream:McpHeaders:0:Name"] = name;
+            values["Bridge:Upstream:McpHeaders:0:Values:0"] = value;
+        });
+
+        if (valid)
+        {
+            Assert.Equal(value, BridgeOptionsFactory.Create(configuration, false).UpstreamMcpHeaders[name][0]);
+        }
+        else
+        {
+            Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(configuration, false));
+        }
     }
 
     [Theory]
