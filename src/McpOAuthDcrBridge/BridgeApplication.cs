@@ -1,4 +1,5 @@
 using McpOAuthDcrBridge.Configuration;
+using McpOAuthDcrBridge.Discovery;
 using McpOAuthDcrBridge.Telemetry;
 
 namespace McpOAuthDcrBridge;
@@ -26,6 +27,7 @@ public static class BridgeApplication
         application.UseBridgeTelemetry();
         application.MapHealthChecks("/health/live");
         application.MapHealthChecks("/health/ready");
+        application.MapDiscoveryEndpoints();
 
         return application;
     }
