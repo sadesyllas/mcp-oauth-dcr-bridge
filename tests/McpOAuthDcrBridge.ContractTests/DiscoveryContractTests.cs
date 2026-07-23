@@ -63,6 +63,23 @@ public sealed class DiscoveryContractTests
         await application.StopAsync();
     }
 
+    [Theory]
+    [InlineData("Application/Json")]
+    [InlineData("application/json;q=0.1, text/html;q=1")]
+    [InlineData("*/*;q=0.5")]
+    public async Task MetadataAcceptsPositiveJsonCompatibleRanges(string accept)
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/.well-known/oauth-protected-resource");
+        request.Headers.TryAddWithoutValidation("Accept", accept);
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        await application.StopAsync();
+    }
+
     [Fact]
     public async Task MetadataRejectsUnsupportedAcceptAndIgnoresHostPoisoning()
     {
