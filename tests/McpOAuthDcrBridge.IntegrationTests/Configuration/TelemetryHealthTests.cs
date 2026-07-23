@@ -37,4 +37,17 @@ public sealed class TelemetryHealthTests
         Assert.DoesNotContain("telemetry-canary-secret", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
         await application.StopAsync();
     }
+
+    [Fact]
+    public async Task OptionalOtlpExporterDoesNotChangeLocalHealthBehavior()
+    {
+        var arguments = ValidBridgeCommandLine.Arguments.Concat(["--Bridge:Telemetry:OtlpEndpoint", "https://127.0.0.1:1/v1/otlp"]).ToArray();
+        await using var application = McpOAuthDcrBridge.BridgeApplication.Build(arguments);
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var response = await client.GetAsync("/health/ready");
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        await application.StopAsync();
+    }
 }
