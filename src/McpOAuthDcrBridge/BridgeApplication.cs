@@ -38,6 +38,11 @@ public static class BridgeApplication
 
         var application = builder.Build();
         application.UseBridgeTelemetry();
+        application.UseExceptionHandler(errorApplication => errorApplication.Run(context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            return Task.CompletedTask;
+        }));
         application.UseRateLimiter();
         application.MapHealthChecks("/health/live");
         application.MapHealthChecks("/health/ready");

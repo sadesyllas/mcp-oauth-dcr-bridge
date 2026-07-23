@@ -41,8 +41,8 @@ public static class RegistrationEndpointExtensions
     {
         if (metadata.ValueKind != JsonValueKind.Object || HasDuplicateProperties(metadata) || HasRejectedField(metadata) || !Strings(metadata, "redirect_uris", required: true, out var redirects) || redirects.Count == 0 || redirects.Distinct(StringComparer.Ordinal).Count() != redirects.Count) return Error();
         if (redirects.Any(redirect => !options.AllowedRedirectUris.Contains(redirect))) return Error("invalid_redirect_uri");
-        if (!Strings(metadata, "response_types", required: false, out var responseTypes) || responseTypes.Distinct(StringComparer.Ordinal).Count() != responseTypes.Count || responseTypes.Any(type => type != "code")) return Error();
-        if (!Strings(metadata, "grant_types", required: false, out var grantTypes) || grantTypes.Distinct(StringComparer.Ordinal).Count() != grantTypes.Count || grantTypes.Any(grant => !SupportedGrants.Contains(grant, StringComparer.Ordinal))) return Error();
+        if (!Strings(metadata, "response_types", required: false, out var responseTypes) || (metadata.TryGetProperty("response_types", out _) && responseTypes.Count == 0) || responseTypes.Distinct(StringComparer.Ordinal).Count() != responseTypes.Count || responseTypes.Any(type => type != "code")) return Error();
+        if (!Strings(metadata, "grant_types", required: false, out var grantTypes) || (metadata.TryGetProperty("grant_types", out _) && grantTypes.Count == 0) || grantTypes.Distinct(StringComparer.Ordinal).Count() != grantTypes.Count || grantTypes.Any(grant => !SupportedGrants.Contains(grant, StringComparer.Ordinal))) return Error();
         if (metadata.TryGetProperty("token_endpoint_auth_method", out var authMethod) && (authMethod.ValueKind != JsonValueKind.String || authMethod.GetString() != "none")) return Error();
         string? scope = null;
         if (metadata.TryGetProperty("scope", out var scopeValue))
