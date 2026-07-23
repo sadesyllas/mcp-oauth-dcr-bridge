@@ -1,12 +1,13 @@
 # Review findings
 
-Reviewer-owned record for the M1–M4 review and the 2026-07-23 re-review.
+Reviewer-owned record for the M1–M4 review and the 2026-07-23 re-reviews.
 Resolved findings remain here for audit history while any finding is open. The
 `Reviewed` cells for M1–M4 must remain unticked until a reviewer verifies every
 fix and the complete required evidence.
 
-The re-review found 10 open findings: nine partially addressed original
-findings and one new code-quality finding. Seven original findings are resolved.
+The second re-review leaves six findings open. Four of the ten findings open in
+the first re-review are now resolved: M1-02, M2-02, M3-01, and M4-06. Across the
+complete record, eleven findings are resolved and six remain open.
 
 ## M1 — Immutable configuration and trust boundaries
 
@@ -30,6 +31,11 @@ IPv4, IPv6, DNS, user-info, and deceptive-loopback inputs in both Development
 and non-Development environments.
 
 ### M1-02 — Scope and HTTP-header grammars are not validated (high)
+
+**Second re-review status: RESOLVED (2026-07-23).** `HttpFieldValue.IsValid`
+now permits only HTAB, visible ASCII, and U+0080–U+00FF, while rejecting higher
+Unicode and surrogate code units. Unit cases cover accepted obs-text plus
+rejected U+0100 and unpaired-surrogate boundaries.
 
 **Re-review status: OPEN (2026-07-23).** OAuth scope-token and HTTP field-name
 validation are fixed. `HttpFieldValue.IsValid` at
@@ -79,6 +85,12 @@ behavior.
 
 ### M1-04 — The required M1 test matrix is incomplete (high)
 
+**Second re-review status: OPEN (2026-07-23).** The M1 change set addresses only
+the field-value grammar. The required forwarding-scheme and RFC `Forwarded`
+poisoning cases, fixed outbound URL assertions, configuration/provider mutation
+during actual concurrent requests, complete credential combinations, and
+representation-wide secret canaries remain absent.
+
 **Re-review status: OPEN (2026-07-23).** Boundary coverage expanded, but
 `BridgeOptionsFactoryTests` still does not test every required value or all
 credential combinations. The poisoning contract covers Host and
@@ -109,6 +121,15 @@ change or leak.
 
 ### M2-01 — The central redaction contract is unused and incomplete (high)
 
+**Second re-review status: OPEN (2026-07-23).** Logging filters now suppress the
+two framework categories that produced the previously confirmed exception and
+query leaks; focused detailed-console reruns no longer contained either canary.
+However, `TelemetryRedactor.HeaderValue` and `ConfigurationError` still have no
+production callers, `SensitiveHeaders` remains dead mutable global state, and
+category filters are not the required central all-sink allowlist/redaction
+contract. No captured test proves other framework or future categories cannot
+emit forbidden data.
+
 **Re-review status: OPEN (2026-07-23).** Bounded application-owned dimensions
 were added, but framework logging still bypasses them. A focused run of
 `ExceptionBoundaryReturnsBoundedFailureWithCorrelation` emitted the complete
@@ -138,6 +159,12 @@ spans, metrics, responses, and health output.
 
 ### M2-02 — Required telemetry is missing and request outcomes can be wrong (high)
 
+**Second re-review status: RESOLVED (2026-07-23).** Final status now drives one
+bounded result value, `bridge.result` is applied to normal and handled failure
+spans, both request count and duration include route/status dimensions, and the
+structured completion event includes method, numeric status, status class, and
+result. The focused exception path recorded 500/5xx/failure.
+
 **Re-review status: OPEN (2026-07-23).** The complete bridge instrument catalog,
 runtime instrumentation, endpoint classification, and handled 500 status are
 now present. However, normal and exception-handler-consumed 4xx/5xx spans never
@@ -166,6 +193,12 @@ final status produced by a safe exception boundary.
 
 ### M2-03 — The required telemetry evidence is absent (high)
 
+**Second re-review status: OPEN (2026-07-23).** No telemetry harness or
+milestone-required captured assertions were added. The focused console reruns
+are useful reviewer evidence for two paths, but they do not replace exact
+log/span/metric snapshots, emitted-label cardinality checks, an all-surface
+canary sweep, or direct unconfigured/configured/failing-exporter observations.
+
 **Re-review status: OPEN (2026-07-23).** Helper-level bounded-dimension tests and
 one unreachable OTLP endpoint test were added, but there are still no captured
 exact log/span/metric contracts, no emitted-metric cardinality test under
@@ -192,6 +225,12 @@ separate liveness/readiness assertions.
 
 ### M3-01 — Non-Bearer authorization suppresses OAuth discovery (high)
 
+**Second re-review status: RESOLVED (2026-07-23).** Bearer credentials now
+validate the complete RFC b64token-shaped value, including permitted core
+characters and trailing padding only. Contract cases cover whitespace,
+comma-combined credentials, empty core with padding, alternate schemes, and
+empty credentials.
+
 **Re-review status: OPEN (2026-07-23).** Basic and empty Bearer cases now
 challenge, but `HasBearerCredential` at
 `DiscoveryEndpointExtensions.cs:17-22` validates only the first character after
@@ -214,6 +253,14 @@ logging credential material.
 
 ### M3-02 — Unsupported content negotiation is accepted (medium)
 
+**Second re-review status: OPEN (2026-07-23).** Quality-zero and case handling
+improved, but the implementation accepts whenever *any* positive JSON/wildcard
+range exists instead of selecting the most specific matching range. An isolated
+probe against the compiled implementation returned `ACCEPTED` for
+`application/json;q=0, */*;q=1`; the specific JSON exclusion must override the
+less-specific wildcard. Add precedence cases, including competing specific and
+wildcard ranges, to both metadata endpoints.
+
 **Re-review status: OPEN (2026-07-23).** A 406 path exists, but `AcceptsJson` at
 `DiscoveryEndpointExtensions.cs:15` ignores quality values and compares media
 types case-sensitively. It accepts `application/json;q=0` and can reject a
@@ -232,6 +279,13 @@ appropriate failure for unsupported media types, and apply it consistently to
 both metadata documents.
 
 ### M3-03 — The required discovery contract matrix is missing (high)
+
+**Second re-review status: OPEN (2026-07-23).** Malformed Bearer and additional
+negotiation cases were added, but exact whole-document assertions and absence of
+extra capabilities are still missing. Poisoning still omits `Forwarded`,
+forwarded scheme, and caller identity; query independence is not established by
+document equality; and malformed-path/request-limit plus comprehensive
+challenge encoding/method cases remain absent.
 
 **Re-review status: OPEN (2026-07-23).** Coverage expanded to scopes, one Host
 poison, 406, 405, and content type, but neither metadata test asserts the exact
@@ -328,6 +382,12 @@ with the implemented validation, limits, telemetry, and stateless behavior.
 
 ### M4-04 — The required registration test matrix is missing (high)
 
+**Second re-review status: OPEN (2026-07-23).** Fragment rejection and
+per-response `201` concurrency assertions were added. The suite still omits
+mixed multiple and duplicate redirect arrays, an unapproved-scope case, chunked
+oversize input, rate-limit recovery, and canary inspection of captured
+telemetry artifacts.
+
 **Re-review status: OPEN (2026-07-23).** Minimal success, redirect error,
 restart, declared size, and basic concurrency contracts were added. The suite
 still omits fragment/multiple/duplicate redirect requests, an unapproved-scope
@@ -365,6 +425,10 @@ coding standard.
 focused registration service, and keep mapping limited to route composition.
 
 ### M4-06 — Registration protocol constants use mutable global arrays (medium)
+
+**Second re-review status: RESOLVED (2026-07-23).** The rejected-field set and
+supported grant/response sequences are now immutable collections; no mutable
+array storage remains in the production endpoint.
 
 **Re-review status: OPEN (new on 2026-07-23).**
 
@@ -404,3 +468,20 @@ they do not replace the milestone-specific tests listed above.
 - Focused detailed-console execution of
   `DiscoveryAndChallengeUseOnlyCanonicalConfiguration`: passed functionally but
   exposed `?secret=never-log` in request-start and request-finish JSON logs.
+
+### 2026-07-23 second re-review validation
+
+- `dotnet test McpOAuthDcrBridge.sln --configuration Release --no-restore`:
+  passed, 136 total tests (85 unit, 10 integration, 41 contract), 0 failed,
+  0 skipped.
+- `dotnet build McpOAuthDcrBridge.sln --configuration Release --no-restore`:
+  passed with 0 warnings and 0 errors.
+- `dotnet format McpOAuthDcrBridge.sln --verify-no-changes --no-restore`:
+  passed.
+- Focused detailed-console reruns of
+  `ExceptionBoundaryReturnsBoundedFailureWithCorrelation` and
+  `DiscoveryAndChallengeUseOnlyCanonicalConfiguration` passed without emitting
+  `telemetry-canary-secret` or `?secret=never-log`.
+- An isolated reflection probe against the compiled
+  `DiscoveryEndpointExtensions.AcceptsJson` returned `ACCEPTED` for
+  `Accept: application/json;q=0, */*;q=1`, confirming M3-02 remains open.
