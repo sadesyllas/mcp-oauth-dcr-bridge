@@ -216,6 +216,12 @@ The external issuer and resource URLs are derived from one required canonical
 external base URL plus fixed application paths. Forwarded host headers cannot
 change published metadata.
 
+Discovery metadata requests are bodyless: a metadata `GET` with a nonzero
+declared content length or transfer-encoded body is rejected with a bounded
+`400 Bad Request` response without buffering, parsing, or logging the body.
+This constraint applies only to the two discovery metadata paths; it does not
+apply to the Streamable HTTP MCP path.
+
 ### Dynamic client registration
 
 1. The downstream client sends RFC 7591 client metadata to `/register`.
