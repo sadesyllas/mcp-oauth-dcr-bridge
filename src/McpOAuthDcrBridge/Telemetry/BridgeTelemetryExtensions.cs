@@ -24,6 +24,7 @@ public static class BridgeTelemetryExtensions
             .WithMetrics(metrics =>
             {
                 metrics.AddMeter(BridgeTelemetry.Meter.Name);
+                metrics.AddRuntimeInstrumentation();
                 ConfigureOtlp(metrics, options);
             });
         return services;
