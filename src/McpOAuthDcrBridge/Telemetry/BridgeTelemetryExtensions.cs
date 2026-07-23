@@ -1,5 +1,6 @@
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using OpenTelemetry.Exporter;
 
 namespace McpOAuthDcrBridge.Telemetry;
 
@@ -44,7 +45,11 @@ public static class BridgeTelemetryExtensions
     {
         if (options.OtlpEndpoint is not null)
         {
-            tracing.AddOtlpExporter(exporter => exporter.Endpoint = options.OtlpEndpoint);
+            tracing.AddOtlpExporter(exporter =>
+            {
+                exporter.Endpoint = options.OtlpEndpoint;
+                exporter.Protocol = OtlpExportProtocol.HttpProtobuf;
+            });
         }
     }
 
@@ -52,7 +57,11 @@ public static class BridgeTelemetryExtensions
     {
         if (options.OtlpEndpoint is not null)
         {
-            metrics.AddOtlpExporter(exporter => exporter.Endpoint = options.OtlpEndpoint);
+            metrics.AddOtlpExporter(exporter =>
+            {
+                exporter.Endpoint = options.OtlpEndpoint;
+                exporter.Protocol = OtlpExportProtocol.HttpProtobuf;
+            });
         }
     }
 }
