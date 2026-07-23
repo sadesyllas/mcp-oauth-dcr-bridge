@@ -106,6 +106,36 @@ public sealed class RegistrationContractTests
         await application.StopAsync();
     }
 
+    [Fact]
+    public async Task RegistrationRejectsDeclaredOversizeBody()
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        var bytes = Encoding.UTF8.GetBytes(new string('a', 32 * 1024 + 1));
+        using var response = await client.PostAsync("/register", new ByteArrayContent(bytes) { Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") } });
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task ConcurrentValidRegistrationsRemainStateless()
+    {
+        await using var application = BridgeContractHost.Create(permitLimit: 1000);
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        var tasks = Enumerable.Range(0, 25).Select(async _ =>
+        {
+            using var response = await client.PostAsJsonAsync("/register", new { redirect_uris = new List<string> { "https://client.example.test/callback" } });
+            return await response.Content.ReadAsStringAsync();
+        });
+        var responses = await Task.WhenAll(tasks);
+
+        Assert.Single(responses.Distinct(StringComparer.Ordinal));
+        await application.StopAsync();
+    }
+
     private static async Task<string> RegisterAfterStartAsync(string json)
     {
         await using var application = BridgeContractHost.Create();
