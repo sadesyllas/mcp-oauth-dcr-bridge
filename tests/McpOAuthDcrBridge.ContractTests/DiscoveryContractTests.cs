@@ -8,7 +8,7 @@ public sealed class DiscoveryContractTests
     [Fact]
     public async Task DiscoveryAndChallengeUseOnlyCanonicalConfiguration()
     {
-        await using var application = BridgeApplication.Build(["--urls", "http://127.0.0.1:0", "--Bridge:ExternalBaseUrl", "https://bridge.example.test", "--Bridge:Upstream:AuthorizationEndpoint", "https://login.example.test/authorize", "--Bridge:Upstream:TokenEndpoint", "https://login.example.test/token", "--Bridge:Upstream:McpUrl", "https://mcp.example.test/streamable", "--Bridge:Upstream:ClientId", "fictional-client", "--Bridge:Upstream:ClientAuthentication:Method", "none", "--Bridge:AllowedRedirectUris:0", "https://client.example.test/callback"]);
+        await using var application = BridgeContractHost.Create();
         await application.StartAsync();
         using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
         using var metadata = await client.GetAsync("/.well-known/oauth-authorization-server?secret=never-log");

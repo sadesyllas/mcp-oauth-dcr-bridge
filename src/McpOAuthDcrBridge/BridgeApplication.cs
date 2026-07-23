@@ -1,5 +1,8 @@
 using McpOAuthDcrBridge.Configuration;
 using McpOAuthDcrBridge.Discovery;
+using McpOAuthDcrBridge.Registration;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using McpOAuthDcrBridge.Telemetry;
 
 namespace McpOAuthDcrBridge;
@@ -22,12 +25,24 @@ public static class BridgeApplication
         builder.Services.AddSingleton(bridgeOptions);
         builder.Services.AddBridgeTelemetry(bridgeOptions, builder.Environment.IsDevelopment());
         builder.Services.AddHealthChecks();
+        builder.Services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.AddFixedWindowLimiter("dcr", limiter =>
+            {
+                limiter.PermitLimit = bridgeOptions.Limits.RateLimitPermitLimit;
+                limiter.Window = bridgeOptions.Limits.RateLimitWindow;
+                limiter.QueueLimit = 0;
+            });
+        });
 
         var application = builder.Build();
         application.UseBridgeTelemetry();
+        application.UseRateLimiter();
         application.MapHealthChecks("/health/live");
         application.MapHealthChecks("/health/ready");
         application.MapDiscoveryEndpoints();
+        application.MapRegistrationEndpoint();
 
         return application;
     }
