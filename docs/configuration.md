@@ -9,7 +9,9 @@ certificate files. Environment variables replace `:` with `__`, for example
 All URLs are fixed at startup. In production they must be absolute HTTPS URLs
 without credentials, query strings, or fragments. `AllowHttpForLocalDevelopment`
 defaults to `false`; it permits HTTP only when the ASP.NET Core environment is
-`Development`, and should only be used for loopback development dependencies.
+`Development` and every HTTP host is `localhost` or a loopback IP address.
+Remote DNS/IP hosts, deceptive `localhost` suffixes, and URI user-info are
+rejected, keeping the exception limited to local development dependencies.
 
 ```json
 {

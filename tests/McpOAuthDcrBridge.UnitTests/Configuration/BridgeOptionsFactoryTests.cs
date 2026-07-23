@@ -200,6 +200,41 @@ public sealed class BridgeOptionsFactoryTests
         Assert.Contains(key, exception.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("DcrRequestBodyBytes", "1024")]
+    [InlineData("DcrRequestBodyBytes", "1048576")]
+    [InlineData("TokenRequestBodyBytes", "1024")]
+    [InlineData("TokenRequestBodyBytes", "1048576")]
+    [InlineData("OAuthTimeoutSeconds", "1")]
+    [InlineData("OAuthTimeoutSeconds", "120")]
+    [InlineData("McpActivityTimeoutSeconds", "1")]
+    [InlineData("McpActivityTimeoutSeconds", "3600")]
+    [InlineData("ShutdownDrainTimeoutSeconds", "1")]
+    [InlineData("ShutdownDrainTimeoutSeconds", "300")]
+    [InlineData("RateLimitPermitLimit", "1")]
+    [InlineData("RateLimitPermitLimit", "10000")]
+    [InlineData("RateLimitWindowSeconds", "1")]
+    [InlineData("RateLimitWindowSeconds", "3600")]
+    public void CreateAcceptsLimitBoundaries(string key, string value)
+    {
+        var options = BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values[$"Bridge:Limits:{key}"] = value), false);
+
+        Assert.NotNull(options.Limits);
+    }
+
+    [Theory]
+    [InlineData("DcrRequestBodyBytes")]
+    [InlineData("TokenRequestBodyBytes")]
+    [InlineData("OAuthTimeoutSeconds")]
+    [InlineData("McpActivityTimeoutSeconds")]
+    [InlineData("ShutdownDrainTimeoutSeconds")]
+    [InlineData("RateLimitPermitLimit")]
+    [InlineData("RateLimitWindowSeconds")]
+    public void CreateRejectsNonNumericLimits(string key)
+    {
+        Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values[$"Bridge:Limits:{key}"] = "not-a-number"), false));
+    }
+
     [Fact]
     public async Task ResolvedOptionsRemainImmutableDuringConcurrentReads()
     {
