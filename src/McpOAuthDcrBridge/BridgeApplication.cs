@@ -41,8 +41,8 @@ public static class BridgeApplication
         application.UseRateLimiter();
         application.MapHealthChecks("/health/live");
         application.MapHealthChecks("/health/ready");
-        application.MapDiscoveryEndpoints();
-        application.MapRegistrationEndpoint();
+        application.MapDiscoveryEndpoints(bridgeOptions);
+        application.MapRegistrationEndpoint(bridgeOptions);
 
         return application;
     }

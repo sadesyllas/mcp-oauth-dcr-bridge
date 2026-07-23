@@ -25,7 +25,7 @@ public sealed partial class RequestTelemetryMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         var stopwatch = Stopwatch.StartNew();
-        var route = NormalizedRoute(context.Request.Path);
+        var route = TelemetryEndpointClassifier.Classify(context.Request.Path);
         var correlation = (CorrelationIdentifier?)context.Items[typeof(CorrelationIdentifier)];
         using var activity = BridgeTelemetry.ActivitySource.StartActivity("bridge.request");
         activity?.SetTag("bridge.route", route);
@@ -36,6 +36,12 @@ public sealed partial class RequestTelemetryMiddleware
         {
             await next(context);
         }
+        catch
+        {
+            activity?.SetStatus(ActivityStatusCode.Error);
+            activity?.SetTag("bridge.result", "failure");
+            throw;
+        }
         finally
         {
             stopwatch.Stop();
@@ -43,17 +49,10 @@ public sealed partial class RequestTelemetryMiddleware
             activity?.SetTag("http.response.status_code", context.Response.StatusCode);
             BridgeTelemetry.RequestCount.Add(1, new KeyValuePair<string, object?>("route", route), new KeyValuePair<string, object?>("status", statusClass));
             BridgeTelemetry.RequestDurationMilliseconds.Record(stopwatch.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("route", route));
-            LogRequestCompleted(logger, route, statusClass, stopwatch.Elapsed.TotalMilliseconds, correlation?.Value);
+            LogRequestCompleted(logger, route, context.Request.Method, statusClass, stopwatch.Elapsed.TotalMilliseconds, correlation?.Value);
         }
     }
 
-    private static string NormalizedRoute(PathString path) => path.Value switch
-    {
-        "/health/live" => "/health/live",
-        "/health/ready" => "/health/ready",
-        _ => "other",
-    };
-
-    [LoggerMessage(LogLevel.Information, "Bridge request completed for {Route} with {StatusClass} in {ElapsedMilliseconds} ms, correlation {CorrelationId}")]
-    private static partial void LogRequestCompleted(ILogger logger, string route, string statusClass, double elapsedMilliseconds, string? correlationId);
+    [LoggerMessage(LogLevel.Information, "Bridge request {Method} completed for {Route} with {StatusClass} in {ElapsedMilliseconds} ms, correlation {CorrelationId}")]
+    private static partial void LogRequestCompleted(ILogger logger, string route, string method, string statusClass, double elapsedMilliseconds, string? correlationId);
 }

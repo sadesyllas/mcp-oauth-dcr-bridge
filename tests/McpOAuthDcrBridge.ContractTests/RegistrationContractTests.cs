@@ -15,7 +15,7 @@ public sealed class RegistrationContractTests
         using var first = await client.PostAsJsonAsync("/register", request);
         using var second = await client.PostAsJsonAsync("/register", request);
 
-        Assert.Equal(System.Net.HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.TooManyRequests, second.StatusCode);
         await application.StopAsync();
     }
@@ -30,7 +30,7 @@ public sealed class RegistrationContractTests
         using var first = await client.PostAsJsonAsync("/register", request);
         using var second = await client.PostAsJsonAsync("/register", request);
 
-        Assert.Equal(System.Net.HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(await first.Content.ReadAsStringAsync(), await second.Content.ReadAsStringAsync());
         var response = await first.Content.ReadAsStringAsync();
         Assert.Contains("fictional-client", response, StringComparison.Ordinal);

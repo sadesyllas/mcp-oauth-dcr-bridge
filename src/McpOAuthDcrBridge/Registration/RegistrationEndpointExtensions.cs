@@ -15,9 +15,8 @@ public static class RegistrationEndpointExtensions
     /// <summary>Maps the bridge's fixed-client registration endpoint.</summary>
     /// <param name="application">The application endpoint route builder.</param>
     /// <returns>The same application for composition.</returns>
-    public static WebApplication MapRegistrationEndpoint(this WebApplication application)
+    public static WebApplication MapRegistrationEndpoint(this WebApplication application, BridgeOptions options)
     {
-        var options = application.Services.GetRequiredService<BridgeOptions>();
         application.MapPost("/register", (Func<HttpContext, Task<IResult>>)(context => RegisterAsync(context, options))).RequireRateLimiting("dcr");
         return application;
     }
@@ -40,9 +39,10 @@ public static class RegistrationEndpointExtensions
 
     private static IResult Validate(JsonElement metadata, BridgeOptions options)
     {
-        if (metadata.ValueKind != JsonValueKind.Object || HasRejectedField(metadata) || !Strings(metadata, "redirect_uris", required: true, out var redirects) || redirects.Count == 0 || redirects.Distinct(StringComparer.Ordinal).Count() != redirects.Count || redirects.Any(redirect => !options.AllowedRedirectUris.Contains(redirect))) return Error();
-        if (!Strings(metadata, "response_types", required: false, out var responseTypes) || responseTypes.Any(type => type != "code")) return Error();
-        if (!Strings(metadata, "grant_types", required: false, out var grantTypes) || grantTypes.Any(grant => !SupportedGrants.Contains(grant, StringComparer.Ordinal))) return Error();
+        if (metadata.ValueKind != JsonValueKind.Object || HasDuplicateProperties(metadata) || HasRejectedField(metadata) || !Strings(metadata, "redirect_uris", required: true, out var redirects) || redirects.Count == 0 || redirects.Distinct(StringComparer.Ordinal).Count() != redirects.Count) return Error();
+        if (redirects.Any(redirect => !options.AllowedRedirectUris.Contains(redirect))) return Error("invalid_redirect_uri");
+        if (!Strings(metadata, "response_types", required: false, out var responseTypes) || responseTypes.Distinct(StringComparer.Ordinal).Count() != responseTypes.Count || responseTypes.Any(type => type != "code")) return Error();
+        if (!Strings(metadata, "grant_types", required: false, out var grantTypes) || grantTypes.Distinct(StringComparer.Ordinal).Count() != grantTypes.Count || grantTypes.Any(grant => !SupportedGrants.Contains(grant, StringComparer.Ordinal))) return Error();
         if (metadata.TryGetProperty("token_endpoint_auth_method", out var authMethod) && (authMethod.ValueKind != JsonValueKind.String || authMethod.GetString() != "none")) return Error();
         string? scope = null;
         if (metadata.TryGetProperty("scope", out var scopeValue))
@@ -52,20 +52,27 @@ public static class RegistrationEndpointExtensions
             if (scope is null || !ScopeAllowed(scope, options.AllowedScopes)) return Error();
         }
 
-        return Results.Json(new
+        var response = new Dictionary<string, object>
         {
-            client_id = options.ClientId,
-            redirect_uris = redirects,
-            response_types = SupportedResponseTypes,
-            grant_types = SupportedGrants,
-            token_endpoint_auth_method = "none",
-            scope,
-        });
+            ["client_id"] = options.ClientId,
+            ["redirect_uris"] = redirects,
+            ["response_types"] = SupportedResponseTypes,
+            ["grant_types"] = SupportedGrants,
+            ["token_endpoint_auth_method"] = "none",
+        };
+        if (scope is not null) response["scope"] = scope;
+        return Results.Json(response, statusCode: StatusCodes.Status201Created);
     }
 
     private static bool HasRejectedField(JsonElement metadata) => RejectedFields.Any(field => metadata.TryGetProperty(field, out _));
 
-    private static bool ScopeAllowed(string scope, ImmutableHashSet<string> allowedScopes) => allowedScopes.Count == 0 || scope.Split(' ', StringSplitOptions.RemoveEmptyEntries).All(token => allowedScopes.Contains(token));
+    private static bool ScopeAllowed(string scope, ImmutableHashSet<string> allowedScopes)
+    {
+        var tokens = scope.Split(' ', StringSplitOptions.None);
+        return tokens.Length > 0 && tokens.All(OAuthScopeToken.IsValid) && (allowedScopes.Count == 0 || tokens.All(token => allowedScopes.Contains(token)));
+    }
+
+    private static bool HasDuplicateProperties(JsonElement metadata) => metadata.EnumerateObject().GroupBy(property => property.Name, StringComparer.Ordinal).Any(group => group.Count() > 1);
 
     private static bool Strings(JsonElement metadata, string name, bool required, out List<string> values)
     {
@@ -96,5 +103,5 @@ public static class RegistrationEndpointExtensions
         return buffer.ToArray();
     }
 
-    private static IResult Error() => Results.Json(new { error = "invalid_client_metadata", error_description = "invalid client metadata" }, statusCode: StatusCodes.Status400BadRequest);
+    private static IResult Error(string code = "invalid_client_metadata") => Results.Json(new { error = code, error_description = "invalid client metadata" }, statusCode: StatusCodes.Status400BadRequest);
 }

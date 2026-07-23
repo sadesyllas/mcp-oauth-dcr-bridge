@@ -10,13 +10,20 @@ public static class DiscoveryEndpointExtensions
     /// <summary>Maps discovery endpoints using only immutable validated bridge options.</summary>
     /// <param name="application">The application endpoint route builder.</param>
     /// <returns>The same application for composition.</returns>
-    public static WebApplication MapDiscoveryEndpoints(this WebApplication application)
+    public static WebApplication MapDiscoveryEndpoints(this WebApplication application, BridgeOptions options)
     {
-        var options = application.Services.GetRequiredService<BridgeOptions>();
-        application.MapGet("/.well-known/oauth-protected-resource", () => MetadataResult(ProtectedResourceMetadata(options)));
-        application.MapGet("/.well-known/oauth-authorization-server", () => MetadataResult(AuthorizationServerMetadata(options)));
-        application.MapMethods("/mcp", ["GET", "POST", "DELETE"], (HttpRequest request) => request.Headers.Authorization.Count == 0 ? ChallengeResult(options) : Results.NotFound());
+        application.MapGet("/.well-known/oauth-protected-resource", (HttpRequest request) => AcceptsJson(request) ? MetadataResult(ProtectedResourceMetadata(options)) : Results.StatusCode(StatusCodes.Status406NotAcceptable));
+        application.MapGet("/.well-known/oauth-authorization-server", (HttpRequest request) => AcceptsJson(request) ? MetadataResult(AuthorizationServerMetadata(options)) : Results.StatusCode(StatusCodes.Status406NotAcceptable));
+        application.MapMethods("/mcp", ["GET", "POST", "DELETE"], (HttpRequest request) => HasBearerCredential(request) ? Results.NotFound() : ChallengeResult(options));
         return application;
+    }
+
+    private static bool AcceptsJson(HttpRequest request) => request.Headers.Accept.Count == 0 || request.GetTypedHeaders().Accept!.Any(value => value.MediaType.Value is "*/*" or "application/json");
+
+    private static bool HasBearerCredential(HttpRequest request)
+    {
+        var values = request.Headers.Authorization;
+        return values.Count == 1 && values[0] is { } value && value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) && value.Length > "Bearer ".Length && !char.IsWhiteSpace(value["Bearer ".Length]);
     }
 
     private static DiscoveryResult MetadataResult(object metadata) => new(StatusCodes.Status200OK, metadata, "public, max-age=300");

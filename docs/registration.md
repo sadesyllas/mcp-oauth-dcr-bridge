@@ -15,3 +15,6 @@ it; approved scope text is returned unchanged.
 To prevent a confused-deputy or credential-smuggling path, the bridge rejects
 client secrets, JWK metadata, and software metadata. Error responses are bounded
 and never echo submitted metadata or secrets.
+
+See [the security model](security.md) for the DCR confused-deputy threat model,
+mitigations, and residual risks.
