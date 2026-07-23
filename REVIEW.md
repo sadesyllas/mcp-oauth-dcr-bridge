@@ -5,19 +5,94 @@ Resolved findings remain here for audit history while any finding is open. The
 `Reviewed` cells for M1–M4 must remain unticked until a reviewer verifies every
 fix and the complete required evidence.
 
-The fourth re-review inspected coder commit `df68bce`. Five findings remain
-open: M1-04, M2-01, M2-03, M3-03, and M4-04. The latest commit adds an exact
-full-success registration response contract, but it does not implement the
-current five-item completion plan. Across the complete record, twelve findings
-are resolved and five remain open.
+The fifth re-review inspected coder commits `1c81820` through `79e8187`. Five
+findings remain open: M1-04, M2-01, M2-03, M3-03, and M4-04. The changes
+materially improve configuration concurrency, telemetry capture, discovery
+body handling, registration errors, and hostile-input coverage, but the exact
+completion evidence remains incomplete and the MCP challenge now percent-
+encodes the metadata URL contrary to RFC 9728. Across the complete record,
+twelve findings are resolved and five remain open.
 
-## Coder completion plan
+## Fifth-pass coder completion plan
 
-This section is the authoritative implementation checklist for the five findings
-whose latest status is `OPEN`. Older finding text remains below as review
-history. The coder must implement and commit the fixes, but must not edit this
-file, change finding statuses, tick `Reviewed`, or delete `REVIEW.md`; those are
-reviewer-only actions.
+This is the authoritative checklist for the remaining work. The coder must
+implement and commit fixes but must not edit this file, finding statuses,
+`Reviewed` cells, or review-file lifecycle.
+
+Work strictly in milestone order and re-anchor on `SPEC.md`, `MILESTONES.md`,
+and `code-quality` before each milestone.
+
+### M1 — finish the validation matrix without weakening invariants
+
+1. Add table-driven cases for an absent/empty redirect list; zero and multiple
+   static-header values; immutability of multiple header values; and both
+   minimum-minus-one and maximum-plus-one for every numeric limit.
+2. Restore non-null construction guarantees for `ClientAuthentication` and
+   `UpstreamMcpHeaders`. Do not use `= null!` to make JSON diagnostics pass.
+   Keep the validated object impossible to construct without those values and
+   expose a separate safe diagnostic representation or converter.
+3. Retain the now-correct barrier-based in-flight reload test, full credential
+   cross-product, fixed URI assertions, and representation canaries.
+
+### M2 — make policy and captured evidence exact and non-vacuous
+
+1. Make `SafeTelemetryPolicy.IsEnabled` reject `LogLevel.None` and undefined
+   enum values explicitly. Test every `LogLevel` value, including `Critical`
+   and `None`, for registered and rejected categories.
+2. Capture and assert the exact completion-template value and every expected
+   field value for representative success, 400, and handled 500 requests.
+   Capture activity status, tags, events, and baggage; logger event/exception
+   artifacts; both metric number types; and complete response/health status,
+   content type, headers, and body. Prove health makes no outbound request.
+3. Inject a distinct canary through every claimed surface. In particular,
+   actually configure the certificate-path canary in a valid
+   `private_key_jwt` host, generate the response canary from a test endpoint,
+   keep configured-secret and registration-body canaries distinct, use OAuth-
+   named query fields, and include invalid correlation and custom headers.
+   An unused string in a canary array is not evidence.
+4. Make the fake OTLP collector read request headers and bodies. Prove trace and
+   metric export separately by flushing and awaiting them separately; do not
+   infer signal type from a total request count. In the unconfigured case,
+   arrange a deterministic default/environment collector target that the host
+   would use if an exporter were accidentally installed. In failure cases,
+   capture exporter diagnostics and response contracts and prove neither leaks
+   a canary. Do not enqueue a hard-coded empty body.
+
+### M3 — repair and lock the discovery/challenge wire contract
+
+1. Emit the actual metadata URL as the quoted `resource_metadata` value; do not
+   apply `Uri.EscapeDataString` to the entire URL. Construct and write
+   `WWW-Authenticate` with typed platform header primitives.
+2. Add GET/POST/DELETE challenge cases using canonical external bases with
+   nontrivial safe paths and escaping. Assert the exact one-header and empty-
+   body contract for missing and all malformed authorization forms, plus the
+   no-local-challenge contract for valid Bearer credentials.
+3. For both metadata endpoints, compare ordinary and poisoned status, content
+   type, complete cache headers, and exact JSON—not only body and cache text.
+   Lock the complete declared/chunked-body error response contract as well.
+
+### M4 — complete registration canary evidence in the shared harness
+
+1. Keep the now-correct JSON content type and exact three error bodies, but use
+   distinct canaries for configured credentials, registration-body credential
+   smuggling, redirect, scope, Authorization, Cookie/custom headers, query, and
+   response surfaces.
+2. For every registration canary, inspect the complete artifacts required by
+   M2: structured state, logger exception/event data, activity status/tags/
+   events/baggage, both metrics, response status/content type/all headers/body,
+   and both health artifacts.
+3. Assert the registration activity and both request metrics have the exact
+   `registration`/`4xx`/`failure` values, not merely that one matching activity
+   and instruments with those names exist. Keep M4 work in an M4 commit rather
+   than implementing it under an M2 commit and renaming the test later.
+
+Run every focused suite and repository gate listed below and report exact test
+totals and commits. Review closure requires all five findings to pass together.
+
+## Historical fourth-pass coder completion plan
+
+This section was the authoritative checklist for the preceding fix pass and is
+retained as review history. The fifth-pass plan above supersedes it.
 
 Work strictly in milestone order: M1, M2, M3, then M4. Re-read `SPEC.md`,
 `MILESTONES.md`, and the `code-quality` skill before each milestone. Keep every
@@ -294,6 +369,22 @@ behavior.
 
 ### M1-04 — The required M1 test matrix is incomplete (high)
 
+**Fifth re-review status: OPEN (2026-07-23).** Commit `1c81820` correctly
+materializes the request tasks, holds every request between two barriers,
+reloads the provider while they are in flight, and snapshots all public and
+outbound URIs plus credentials, redirects, scopes, limits, and headers. It also
+adds the full credential cross-product and safe JSON/string canaries. The
+matrix is still incomplete: there is no absent redirect-list case; no configured
+header with zero values; no multiple-value preservation/immutability case; and
+the out-of-bounds table checks only one side for each limit instead of both
+minimum-minus-one and maximum-plus-one for every limit. In addition,
+`BridgeOptions.ClientAuthentication` and `UpstreamMcpHeaders` at
+`src/McpOAuthDcrBridge/Configuration/BridgeOptions.cs:34-41` lost their
+`required` modifiers and now use `= null!` solely to satisfy diagnostic JSON,
+weakening the validated construction contract. Follow the fifth-pass M1 plan:
+complete those exact matrices and use a safe diagnostic projection/converter
+without permitting null security-critical properties.
+
 **Third re-review status: OPEN (2026-07-23).** A new integration test proves
 that real metadata requests remain canonical after configuration-provider
 mutation and under hostile Host, forwarded-scheme, and RFC `Forwarded` input.
@@ -338,6 +429,17 @@ change or leak.
 ## M2 — Safe telemetry, correlation, and health
 
 ### M2-01 — The central redaction contract is unused and incomplete (high)
+
+**Fifth re-review status: OPEN (2026-07-23).** Commit `d719af5` removes the dead
+mutable header set and unused redaction APIs, centralizes the filter in a frozen
+category registry, routes configuration errors through that policy, and proves
+a rejected category does not reach the capture provider. One closed-boundary
+defect remains: `SafeTelemetryPolicy.IsEnabled` uses
+`level >= LogLevel.Information`, so it returns true for `LogLevel.None` and any
+undefined enum value numerically above it. The registered-category test omits
+both `Critical` and `None`. Replace the ordinal comparison with an explicit
+approved-level decision, reject `None`/undefined values, and test every enum
+member plus an out-of-range cast for both registered and rejected categories.
 
 **Third re-review status: OPEN (2026-07-23).** A global logging allowlist now
 suppresses every category except the bounded request middleware, and
@@ -419,6 +521,30 @@ classification. Record exceptions as bounded failure categories and observe the
 final status produced by a safe exception boundary.
 
 ### M2-03 — The required telemetry evidence is absent (high)
+
+**Fifth re-review status: OPEN (2026-07-23).** Commits `e531443` and `7995cb6`
+add both metric number callbacks, 100 hostile requests, bounded route/status
+checks, exact registration errors, health bodies, and local OTLP collectors.
+The attempted fix remains partly vacuous:
+
+- `TelemetryCaptureContractTests` captures activity tags but not events or
+  baggage, drops logger exceptions/event IDs, checks log keys without asserting
+  the exact `{OriginalFormat}` or representative field values, and records
+  health status/media type/body without complete headers or outbound-call
+  evidence.
+- The certificate and response canaries at lines 23-24 are never injected.
+  The configured client-secret canary is reused as the registration-body
+  canary, so those surfaces are not independently proven.
+- `LocalOtlpCollector` discards all request headers and bodies and enqueues
+  `string.Empty` at `TelemetryHealthTests.cs:174`. Two requests to `/` do not
+  prove that one trace export and one metric export arrived. The unconfigured
+  test listens on a random address that the application was never told about,
+  and the failure test captures no exporter diagnostics.
+
+Follow the fifth-pass M2 plan in order: make the capture artifact-complete,
+inject every canary distinctly, assert exact values rather than only keys, then
+make each OTLP mode directly observable with real request bodies and separately
+verified trace/metric flushes.
 
 **Third re-review status: OPEN (2026-07-23).** The new capture test is a useful
 start, but it does not capture `double` histogram measurements, assert exact
@@ -521,6 +647,24 @@ appropriate failure for unsupported media types, and apply it consistently to
 both metadata documents.
 
 ### M3-03 — The required discovery contract matrix is missing (high)
+
+**Fifth re-review status: OPEN (2026-07-23).** Commits `cd07299`, `c30c71c`,
+and `79e8187` correctly specify bodyless metadata requests, test declared and
+chunked bodies, poison both documents, and cover GET/POST/DELETE challenges.
+However, `ChallengeResult` now applies `Uri.EscapeDataString` to the whole URL
+and emits
+`resource_metadata="https%3A%2F%2Fbridge.example.test%2F..."`. RFC 9728
+Section 5.1 defines this auth-parameter value as the metadata URL and shows the
+ordinary quoted URL form; percent-encoding the URL itself prevents a conforming
+client from using the value directly. The code also still builds the challenge
+with interpolated header text instead of typed platform primitives. No
+nontrivial canonical-base path/escaping case exists, and the poisoned-document
+test compares bodies and cache text without locking status and content type.
+
+Replace the percent-encoded value with the actual canonical metadata URL, write
+the challenge through typed header APIs, and add the exact method/base-path/
+escaping and full poisoned-response matrices from the fifth-pass M3 plan.
+Validate against [RFC 9728 Section 5.1](https://www.rfc-editor.org/rfc/rfc9728.html#section-5.1).
 
 **Third re-review status: OPEN (2026-07-23).** Both metadata documents now have
 exact whole-JSON assertions, and the protected-resource document is compared
@@ -631,6 +775,19 @@ registration documentation. Keep the mitigations and residual risks aligned
 with the implemented validation, limits, telemetry, and stateless behavior.
 
 ### M4-04 — The required registration test matrix is missing (high)
+
+**Fifth re-review status: OPEN (2026-07-23).** The shared test now sends valid
+JSON and asserts the exact smuggled-credential, redirect, and scope error bodies,
+and it captures both request metric types. The M4 commit `7d631c0` itself only
+renames that test; the substantive M4 assertions were committed under M2.
+More importantly, the same incomplete artifact model from M2-03 makes the
+registration proof incomplete: configured-secret and body canaries are the
+same value, certificate and response canaries are never injected, events/
+baggage/logger exceptions and complete response/health headers are not
+captured, and the test only proves that some registration failure activity and
+named instruments exist rather than exact per-canary activity/metric contracts.
+Use distinct canaries and verify every complete artifact for every registration
+case as ordered in the fifth-pass M4 plan.
 
 **Fourth re-review status: OPEN (2026-07-23).** Commit `df68bce` adds a useful
 exact full-success DCR response test, but that success contract was not the
@@ -813,3 +970,21 @@ they do not replace the milestone-specific tests listed above.
 - The new `FullRegistrationUsesTheExactCreatedContract` test passed. Direct
   inspection confirmed that the open M1-04, M2-01, M2-03, M3-03, and M4-04
   completion-plan work is otherwise unchanged.
+
+### 2026-07-23 fifth re-review validation
+
+- Review scope contained eight coder commits from `1c81820` through `79e8187`,
+  covering M1 configuration evidence, M2 policy/capture/OTLP evidence, the M3
+  SPEC change and discovery contracts, and M4 registration telemetry evidence.
+- Focused suites passed: 149 unit, 15 integration, and 61 contract tests; 225
+  total, 0 failed, 0 skipped.
+- `dotnet test McpOAuthDcrBridge.sln --configuration Release --no-restore`:
+  passed, 225 total tests, 0 failed, 0 skipped.
+- `dotnet build McpOAuthDcrBridge.sln --configuration Release --no-restore`:
+  passed with 0 warnings and 0 errors.
+- `dotnet format McpOAuthDcrBridge.sln --verify-no-changes --no-restore`:
+  passed.
+- `git diff --check`: passed.
+- Primary-standard verification against RFC 9728 Section 5.1 confirmed that
+  `resource_metadata` carries the quoted metadata URL, not a percent-encoded
+  replacement of the complete URL.
