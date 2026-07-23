@@ -82,5 +82,10 @@ public static class DiscoveryEndpointExtensions
         code_challenge_methods_supported = new[] { "S256" },
     };
 
-    private static DiscoveryResult ChallengeResult(BridgeOptions options) => new(StatusCodes.Status401Unauthorized, null, null, $"Bearer resource_metadata=\"{options.IssuerUri}.well-known/oauth-protected-resource\"");
+    private static DiscoveryResult ChallengeResult(BridgeOptions options)
+    {
+        var metadataUri = new Uri(options.IssuerUri, ".well-known/oauth-protected-resource").AbsoluteUri;
+        var encodedMetadataUri = Uri.EscapeDataString(metadataUri);
+        return new DiscoveryResult(StatusCodes.Status401Unauthorized, null, null, $"Bearer resource_metadata=\"{encodedMetadataUri}\"");
+    }
 }

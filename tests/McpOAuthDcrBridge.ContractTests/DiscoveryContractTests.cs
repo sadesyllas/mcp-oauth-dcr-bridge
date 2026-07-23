@@ -23,7 +23,7 @@ public sealed class DiscoveryContractTests
         Assert.Equal("https://bridge.example.test/register", metadataJson.RootElement.GetProperty("registration_endpoint").GetString());
         Assert.Equal("code", metadataJson.RootElement.GetProperty("response_types_supported")[0].GetString());
         Assert.Equal(System.Net.HttpStatusCode.Unauthorized, challenge.StatusCode);
-        Assert.Equal("Bearer resource_metadata=\"https://bridge.example.test/.well-known/oauth-protected-resource\"", challenge.Headers.WwwAuthenticate.Single()!.ToString());
+        Assert.Equal("Bearer resource_metadata=\"https%3A%2F%2Fbridge.example.test%2F.well-known%2Foauth-protected-resource\"", challenge.Headers.WwwAuthenticate.Single()!.ToString());
         await application.StopAsync();
     }
 
@@ -69,7 +69,40 @@ public sealed class DiscoveryContractTests
         request.Headers.TryAddWithoutValidation("Authorization", authorization);
         using var response = await client.SendAsync(request);
 
-        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+        AssertChallenge(response);
+        await application.StopAsync();
+    }
+
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    [InlineData("DELETE")]
+    public async Task McpChallengesMissingAuthorizationForEverySupportedMethod(string method)
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), "/mcp"));
+
+        AssertChallenge(response);
+        await application.StopAsync();
+    }
+
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    [InlineData("DELETE")]
+    public async Task ValidBearerCredentialsDoNotReceiveTheLocalChallenge(string method)
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var request = new HttpRequestMessage(new HttpMethod(method), "/mcp");
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer abc.DEF_123+/==");
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(response.Headers.WwwAuthenticate);
         await application.StopAsync();
     }
 
@@ -210,5 +243,13 @@ public sealed class DiscoveryContractTests
         request.Headers.TryAddWithoutValidation("Forwarded", "for=192.0.2.1;host=attacker.example.test;proto=http");
         request.Headers.TryAddWithoutValidation("Authorization", "Bearer caller-identity-canary");
         return await client.SendAsync(request);
+    }
+
+    private static void AssertChallenge(HttpResponseMessage response)
+    {
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Single(response.Headers.WwwAuthenticate);
+        Assert.Equal("Bearer resource_metadata=\"https%3A%2F%2Fbridge.example.test%2F.well-known%2Foauth-protected-resource\"", response.Headers.WwwAuthenticate.Single()!.ToString());
+        Assert.Empty(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
     }
 }
