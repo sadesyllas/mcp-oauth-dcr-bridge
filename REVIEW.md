@@ -6,12 +6,14 @@ Resolved findings remain here for audit history while any finding is open. The
 and the complete required evidence for each affected milestone. M1 passed its
 scoped sixth re-review and is now reviewed.
 
-The M1-only sixth re-review inspected coder commit `b5fee67` and resolved M1-04.
-Four findings remain open outside this review's scope: M2-01, M2-03, M3-03, and
-M4-04. M1 now has complete configuration-boundary evidence, retains its
-barrier-based in-flight immutability coverage, and restores non-null
+The scoped M2 sixth re-review inspected coder commit `5f28768`. It resolves
+M2-01, but M2-03 remains open because the new assertions still leave declared
+canaries unused, representative request and health contracts incomplete, and
+OTLP signal/failure evidence ambiguous. Three findings remain open: M2-03,
+M3-03, and M4-04. M1 now has complete configuration-boundary evidence, retains
+its barrier-based in-flight immutability coverage, and restores non-null
 construction requirements while keeping JSON diagnostics credential-safe.
-Across the complete record, thirteen findings are resolved and four remain
+Across the complete record, fourteen findings are resolved and three remain
 open.
 
 ## Fifth-pass coder completion plan
@@ -91,7 +93,7 @@ all three items below. M1 is reviewed and requires no further coder work.
    than implementing it under an M2 commit and renaming the test later.
 
 Run every focused suite and repository gate listed below and report exact test
-totals and commits. Review closure now requires the four remaining findings to
+totals and commits. Review closure now requires the three remaining findings to
 pass together.
 
 ## Historical fourth-pass coder completion plan
@@ -446,6 +448,13 @@ change or leak.
 
 ### M2-01 — The central redaction contract is unused and incomplete (high)
 
+**Sixth re-review status: RESOLVED (2026-07-23).** Commit `5f28768` now rejects
+`LogLevel.None` and values outside the defined `Trace` through `Critical`
+range before applying the registered-category threshold. The registered test
+covers every defined level plus an undefined value, and the rejected-category
+matrix applies the same complete level set to framework, arbitrary, and
+near-match categories. The focused policy suite passed all 12 tests.
+
 **Fifth re-review status: OPEN (2026-07-23).** Commit `d719af5` removes the dead
 mutable header set and unused redaction APIs, centralizes the filter in a frozen
 category registry, routes configuration errors through that policy, and proves
@@ -537,6 +546,59 @@ classification. Record exceptions as bounded failure categories and observe the
 final status produced by a safe exception boundary.
 
 ### M2-03 — The required telemetry evidence is absent (high)
+
+**Sixth re-review status: OPEN (2026-07-23).** Commit `5f28768` improves the
+shared capture model by retaining activity events/baggage, logger event and
+exception artifacts, metric number kinds, real OTLP headers/bodies, a
+deterministic environment collector for the disabled case, and a valid
+`private_key_jwt` certificate-path host. The focused M2 integration suite
+passes all 8 tests. The attempted fix still does not satisfy the fifth-pass
+checklist:
+
+- `TelemetryCaptureContractTests.cs:32` configures the certificate canary
+  (`canaries[8]`) as the static MCP-header value, so the declared configured
+  header canary (`canaries[9]`) is never injected. The response canary is
+  produced at line 36 but explicitly excluded from the all-artifact assertion
+  at lines 134-138, so its absence from logs, spans, and metrics is not proved.
+- Lines 112-116 find partial matches for representative success, 400, and 500
+  artifacts but do not assert each request's complete method, correlation ID,
+  elapsed value, activity status/tag values, and both exact metric values/tag
+  sets. Lines 91-97 assert only one named header rather than the complete
+  health-header contract, and no upstream observer proves that live/readiness
+  made zero outbound requests.
+- `TelemetryHealthTests.cs:96-105` waits for total request counts and never
+  asserts the captured paths. A metric export could satisfy the first wait
+  before the trace flush, so the test does not separately prove `/v1/traces`
+  and `/v1/metrics`. The failing-collector case at lines 109-125 does not
+  capture exporter diagnostics and asserts only response status/body rather
+  than the complete unchanged response contract.
+- The collector reads binary protobuf through a `StreamReader` and treats the
+  byte `Content-Length` as a character count at lines 180-220. This is not an
+  exact body capture and can truncate or transform arbitrary protobuf bytes,
+  weakening both nonempty-export and canary assertions.
+
+Resolve this recurrence in the following verifiable order:
+
+1. Replace the positional canary array with named canaries, inject every named
+   value exactly once through its claimed surface, and build separate flattened
+   telemetry and response artifacts. Assert the response canary is present only
+   in the intentional test response and absent from all telemetry artifacts;
+   assert every other canary is absent from every captured artifact.
+2. Give the representative success, registration 400, and handled 500 requests
+   fixed valid correlation IDs. Select exactly one log, activity, counter, and
+   histogram for each request and assert the complete expected field/tag values,
+   event/exception state, and numeric measurement constraints. Lock the complete
+   live/ready status, media type, headers, and body, and point configured
+   upstream URLs at a local observer that records zero health requests.
+3. Capture OTLP as bytes with byte-accurate declared/chunked framing. After the
+   trace flush, await and assert a nonempty `POST /v1/traces`; only then flush
+   metrics and await/assert a nonempty `POST /v1/metrics`. Do not use aggregate
+   request counts as signal identity.
+4. Capture the exporter failure diagnostic channel or explicitly assert the
+   configured safe logging boundary suppresses it, then lock the complete
+   application response contract and prove the canary is absent from response,
+   diagnostics, and both exported signal bodies. Re-run the focused M2 suites
+   and repository build/format/test gates.
 
 **Fifth re-review status: OPEN (2026-07-23).** Commits `e531443` and `7995cb6`
 add both metric number callbacks, 100 hostile requests, bounded route/status
