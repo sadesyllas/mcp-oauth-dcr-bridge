@@ -877,6 +877,42 @@ with the implemented validation, limits, telemetry, and stateless behavior.
 
 ### M4-04 — The required registration test matrix is missing (high)
 
+**Eighth re-review status: OPEN (2026-07-24).** Commit `12f8341` adds an exact
+surface-name/value inventory and correctly derives configuration, registration
+JSON, query, and certificate values from their concrete input collections.
+However, the request-header and endpoint entries are still derived from parallel
+local variables rather than the objects or runtime behavior that exercise those
+surfaces.
+
+This is not only a theoretical weakness. In an isolated copy of the current
+commit, the reviewer removed both
+`request.Headers.TryAddWithoutValidation("Cookie", cookieHeader)` and
+`request.Headers.TryAddWithoutValidation("X-Custom-Canary", customHeader)` from
+every registration request. The focused
+`SharedCaptureHarnessLocksM2TelemetryAndM4RegistrationCanaryContracts` test
+still passed 1/1 because `CreateInputSurfaces` continued to receive the unused
+`cookieHeader` and `customHeader` locals. The attempted fix therefore adds a
+positive inventory but does not couple that inventory to actual injection, so
+the precise seventh-pass mutation requirement remains unmet.
+
+**Revised guidance for the next fix pass:**
+
+1. Construct the actual registration `HttpRequestMessage` instances before
+   asserting inputs. Derive Cookie, Authorization, custom-header, query, and
+   body evidence by inspecting those request objects and their content—not
+   parallel strings passed separately to the inventory.
+2. Couple exception and response evidence to runtime behavior. For example, use
+   one exception factory in both the mapped throwing endpoint and input
+   inspection, keep the exact 500 assertion, and keep the exact response-canary
+   body assertion. Removing or replacing either mapped injection must fail.
+3. Retain the concrete argument/JSON/certificate extraction, exact expected
+   surface names/values, aggregate output absence sweep, and per-registration
+   response/log/activity/metric assertions.
+4. Demonstrate the guard with a local mutation check: removing any actual
+   registration header attachment must make the focused test fail. Then restore
+   the code and run the focused telemetry and registration suites plus every
+   repository completion gate.
+
 **Seventh re-review status: OPEN (2026-07-24).** Commit `663fa08` fixes the
 specific configured-header/certificate mix-up: named `ConfiguredHeader` and
 `CertificatePath` values are distinct and are supplied to their intended
@@ -1216,3 +1252,15 @@ they do not replace the milestone-specific tests listed above.
   injection guards cover three configuration surfaces but do not cover every
   registration/request/exception surface, so removing several injection points
   would not fail the test. M4-04 therefore remains open.
+
+### 2026-07-24 M4 eighth re-review validation
+
+- Review scope contained coder commit `12f8341`
+  (`M4: inventory every canary input surface`).
+- Static inspection confirmed exact surface-name/value inventory coverage, but
+  request-header inventory entries are populated from parallel local strings.
+- In an isolated temporary copy, removing the actual Cookie and custom-header
+  attachments from every registration request left the focused shared telemetry
+  test passing: 1 total test, 0 failed, 0 skipped.
+- This executable mutation proves the inventory is not coupled to actual
+  request injection. M4-04 therefore remains open.
