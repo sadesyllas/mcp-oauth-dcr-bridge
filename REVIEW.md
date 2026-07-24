@@ -2,18 +2,18 @@
 
 Reviewer-owned record for the M1–M4 review and the 2026-07-23 re-reviews.
 Resolved findings remain here for audit history while any finding is open. The
-`Reviewed` cells for M3–M4 remain unticked until a reviewer verifies every fix
-and the complete required evidence for each affected milestone. M1 passed its
+M4 `Reviewed` cell remains unticked until a reviewer verifies every fix and
+the complete required evidence for that milestone. M1 passed its
 scoped sixth re-review, and M2 was explicitly accepted by the project owner.
 
 The scoped M2 sixth re-review inspected coder commit `5f28768` and resolved
 M2-01 while identifying residual evidence gaps in M2-03. On 2026-07-23, the
 project owner explicitly accepted responsibility for those gaps and directed
-that M2 be resolved. M2 is therefore reviewed by owner acceptance. Two findings
-remain open: M3-03 and M4-04. M1 retains its complete
+that M2 be resolved. M2 is therefore reviewed by owner acceptance. M4-04 is
+the only remaining open finding. M1 retains its complete
 configuration-boundary evidence and M2 retains the technical record of the
-accepted gaps below. Across the complete record, fifteen findings are resolved
-and two remain open.
+accepted gaps below. M3 has passed an independent reviewer re-check. Across the
+complete record, sixteen findings are resolved and one remains open.
 
 ## Fifth-pass coder completion plan
 
@@ -736,6 +736,19 @@ both metadata documents.
 
 ### M3-03 — The required discovery contract matrix is missing (high)
 
+**Seventh re-review status: RESOLVED (2026-07-24).** The current source and
+commit `418e2dc` were re-reviewed independently after the earlier approval was
+reverted. The bridge emits the actual canonical metadata URL as the quoted
+`resource_metadata` parameter and constructs the challenge through
+`AuthenticationHeaderValue`. Contract coverage locks the exact one-challenge,
+empty-body response for GET, POST, and DELETE with escaped canonical base paths,
+malformed authorization challenges, and valid Bearer bypass. Both metadata
+documents are compared across ordinary and poisoned requests for status,
+content type, cache policy, and exact JSON; declared and chunked body rejections
+lock their bounded, bodyless response contracts. The focused discovery suite
+passed 32 tests. The full repository suite passed 242 tests (163 unit, 15
+integration, 64 contract), along with build, formatter, and whitespace gates.
+
 **Fifth re-review status: OPEN (2026-07-23).** Commits `cd07299`, `c30c71c`,
 and `79e8187` correctly specify bodyless metadata requests, test declared and
 chunked bodies, poison both documents, and cover GET/POST/DELETE challenges.
@@ -1055,6 +1068,7 @@ they do not replace the milestone-specific tests listed above.
 - `dotnet format McpOAuthDcrBridge.sln --verify-no-changes --no-restore`:
   passed.
 - `git diff --check`: passed.
+
 - The new `FullRegistrationUsesTheExactCreatedContract` test passed. Direct
   inspection confirmed that the open M1-04, M2-01, M2-03, M3-03, and M4-04
   completion-plan work is otherwise unchanged.
@@ -1094,3 +1108,17 @@ they do not replace the milestone-specific tests listed above.
 - `dotnet format McpOAuthDcrBridge.sln --verify-no-changes --no-restore`:
   passed.
 - `git diff --check`: passed.
+
+### 2026-07-24 M3-only seventh re-review validation
+
+- The current M3 implementation and coder commit `418e2dc`
+  (`M3: correct discovery challenge wire contract`) were independently
+  re-inspected after the earlier approval/revert pair.
+- Focused `DiscoveryContractTests`: passed, 32 total tests, 0 failed, 0 skipped.
+- `dotnet test McpOAuthDcrBridge.sln --configuration Release --no-restore`:
+  passed, 242 total tests (163 unit, 15 integration, 64 contract), 0 failed,
+  0 skipped.
+- `dotnet build McpOAuthDcrBridge.sln --configuration Release --no-restore`:
+  passed with 0 warnings and 0 errors.
+- `dotnet format McpOAuthDcrBridge.sln --verify-no-changes --no-restore` and
+  `git diff --check`: passed.
