@@ -15,6 +15,7 @@ public static class TelemetryEndpointClassifier
         "/.well-known/oauth-protected-resource" => "protected_resource_metadata",
         "/.well-known/oauth-authorization-server" => "authorization_server_metadata",
         "/register" => "registration",
+        "/authorize" => "authorization",
         "/mcp" => "mcp",
         _ => "other",
     };

@@ -1,3 +1,4 @@
+using McpOAuthDcrBridge.Authorization;
 using McpOAuthDcrBridge.Configuration;
 using McpOAuthDcrBridge.Discovery;
 using McpOAuthDcrBridge.Registration;
@@ -60,6 +61,12 @@ public static class BridgeApplication
                 limiter.Window = bridgeOptions.Limits.RateLimitWindow;
                 limiter.QueueLimit = 0;
             });
+            options.AddFixedWindowLimiter("authorize", limiter =>
+            {
+                limiter.PermitLimit = bridgeOptions.Limits.RateLimitPermitLimit;
+                limiter.Window = bridgeOptions.Limits.RateLimitWindow;
+                limiter.QueueLimit = 0;
+            });
         });
 
         var application = builder.Build();
@@ -78,6 +85,7 @@ public static class BridgeApplication
         application.MapHealthChecks("/health/ready");
         application.MapDiscoveryEndpoints(bridgeOptions);
         application.MapRegistrationEndpoint(bridgeOptions);
+        application.MapAuthorizationEndpoint(bridgeOptions);
 
         return application;
     }
