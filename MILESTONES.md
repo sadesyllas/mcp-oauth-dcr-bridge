@@ -11,7 +11,7 @@
 | M0 | Solution scaffold and engineering gates | ✅ | ✅ | ✅ |
 | M1 | Immutable configuration and trust boundaries | ✅ | ✅ | ✅ |
 | M2 | Safe telemetry, correlation, and health | ✅ | ✅ | ✅ |
-| M3 | OAuth discovery metadata and MCP challenge | ✅ | ✅ | ⬜ |
+| M3 | OAuth discovery metadata and MCP challenge | ✅ | ✅ | ✅ |
 | M4 | Stateless fixed-client DCR | ✅ | ✅ | ⬜ |
 | M5 | Transparent authorization forwarding and S256 PKCE | ⬜ | ⬜ | ⬜ |
 | M6 | Transparent token and refresh forwarding | ⬜ | ⬜ | ⬜ |
