@@ -16,27 +16,27 @@ public sealed partial class TelemetryCaptureContractTests
     [Fact]
     public async Task SharedCaptureHarnessLocksM2TelemetryAndM4RegistrationCanaryContracts()
     {
-        var canaries = new[]
-        {
+        var canaries = new TestCanaries(
             "configured-secret-canary-1fa31", "registration-secret-canary-2b940", "invalid-redirect-canary-4c882",
             "unsupported-scope-canary-8a9e7", "authorization-canary-5ca22", "oauth-query-canary-70bd1",
             "cookie-canary-10a2f", "exception-canary-65cb4", "/run/secrets/certificate-canary-9bc44.pfx",
-            "configured-header-canary-c1c71", "response-canary-20a8b", "custom-header-canary-3f173",
-        };
+            "configured-header-canary-c1c71", "response-canary-20a8b", "custom-header-canary-3f173");
         using var capture = new TelemetryCapture();
         var arguments = ValidBridgeCommandLine.Arguments.Concat([
             "--Bridge:AllowedScopes:0", "mcp.read",
             "--Bridge:Upstream:ClientAuthentication:Method", "client_secret_post",
-            "--Bridge:Upstream:ClientAuthentication:ClientSecret", canaries[0],
+            "--Bridge:Upstream:ClientAuthentication:ClientSecret", canaries.ConfiguredSecret,
             "--Bridge:Upstream:McpHeaders:0:Name", "X-Configured",
-            "--Bridge:Upstream:McpHeaders:0:Values:0", canaries[8],
+            "--Bridge:Upstream:McpHeaders:0:Values:0", canaries.ConfiguredHeader,
         ]).ToArray();
+        Assert.Contains(canaries.ConfiguredSecret, arguments);
+        Assert.Contains(canaries.ConfiguredHeader, arguments);
         await using var application = McpOAuthDcrBridge.BridgeApplication.Build(arguments, null, logging => logging.AddProvider(capture.LoggerProvider));
-        application.MapGet("/test-throw", (HttpContext _) => throw new InvalidOperationException(canaries[7]));
-        application.MapGet("/test-response", () => Results.Text(canaries[10]));
+        application.MapGet("/test-throw", (HttpContext _) => throw new InvalidOperationException(canaries.Exception));
+        application.MapGet("/test-response", () => Results.Text(canaries.Response));
         application.MapGet("/test-rejected-log", (ILoggerFactory factory) =>
         {
-            LogRejectedCategory(factory.CreateLogger("Framework.Future.Category"), canaries[4]);
+            LogRejectedCategory(factory.CreateLogger("Framework.Future.Category"), canaries.Authorization);
             return Results.NoContent();
         });
         await application.StartAsync();
@@ -44,42 +44,42 @@ public sealed partial class TelemetryCaptureContractTests
 
         var registrationCases = new[]
         {
-            $"{{\"redirect_uris\":[\"https://client.example.test/callback\"],\"client_secret\":\"{canaries[1]}\"}}",
-            $"{{\"redirect_uris\":[\"https://client.example.test/{canaries[2]}\"]}}",
-            $"{{\"redirect_uris\":[\"https://client.example.test/callback\"],\"scope\":\"{canaries[3]}\"}}",
+            $"{{\"redirect_uris\":[\"https://client.example.test/callback\"],\"client_secret\":\"{canaries.RegistrationSecret}\"}}",
+            $"{{\"redirect_uris\":[\"https://client.example.test/{canaries.InvalidRedirect}\"]}}",
+            $"{{\"redirect_uris\":[\"https://client.example.test/callback\"],\"scope\":\"{canaries.UnsupportedScope}\"}}",
         };
         var registrationArtifacts = new List<CapturedResponse>();
         foreach (var json in registrationCases)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"/register?client_id={canaries[5]}&redirect_uri={canaries[2]}")
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"/register?client_id={canaries.Query}&redirect_uri={canaries.InvalidRedirect}")
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json"),
             };
-            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {canaries[4]}");
-            request.Headers.TryAddWithoutValidation("Cookie", $"session={canaries[6]}");
-            request.Headers.TryAddWithoutValidation("X-Custom-Canary", canaries[11]);
+            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {canaries.Authorization}");
+            request.Headers.TryAddWithoutValidation("Cookie", $"session={canaries.Cookie}");
+            request.Headers.TryAddWithoutValidation("X-Custom-Canary", canaries.CustomHeader);
             using var response = await client.SendAsync(request);
             registrationArtifacts.Add(await CaptureResponseAsync(response));
         }
         var registrationLogs = capture.Logs.ToArray();
         var registrationActivities = capture.Activities.ToArray();
         var registrationMeasurements = capture.Measurements.ToArray();
-        using var exceptionHttpResponse = await client.GetAsync($"/test-throw?code={canaries[5]}");
+        using var exceptionHttpResponse = await client.GetAsync($"/test-throw?code={canaries.Query}");
         var exceptionResponse = await CaptureResponseAsync(exceptionHttpResponse);
         using var responseCanaryHttpResponse = await client.GetAsync("/test-response");
         var responseCanaryResponse = await CaptureResponseAsync(responseCanaryHttpResponse);
-        using var rejectedLogHttpResponse = await client.GetAsync($"/test-rejected-log?code={canaries[5]}");
+        using var rejectedLogHttpResponse = await client.GetAsync($"/test-rejected-log?code={canaries.Query}");
         var rejectedLogResponse = await CaptureResponseAsync(rejectedLogHttpResponse);
         var healthArtifacts = new[] { await CaptureResponseAsync(client, "/health/live"), await CaptureResponseAsync(client, "/health/ready") };
         for (var index = 0; index < 100; index++)
         {
-            using var hostile = new HttpRequestMessage((index % 4) switch { 0 => HttpMethod.Get, 1 => HttpMethod.Post, 2 => HttpMethod.Delete, _ => HttpMethod.Patch }, $"/hostile-{index}?input={canaries[4]}-{index}");
+            using var hostile = new HttpRequestMessage((index % 4) switch { 0 => HttpMethod.Get, 1 => HttpMethod.Post, 2 => HttpMethod.Delete, _ => HttpMethod.Patch }, $"/hostile-{index}?input={canaries.Authorization}-{index}");
             hostile.Headers.Host = $"host-{index}.example.test";
             hostile.Headers.TryAddWithoutValidation("X-Forwarded-Host", $"forwarded-{index}.example.test");
             hostile.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "http");
             hostile.Headers.TryAddWithoutValidation("Forwarded", $"host=forwarded-{index}.example.test;proto=http");
-            hostile.Headers.TryAddWithoutValidation("X-Correlation-ID", $"invalid correlation {index} {canaries[5]}");
-            hostile.Headers.TryAddWithoutValidation("X-Custom-Canary", canaries[11]);
+            hostile.Headers.TryAddWithoutValidation("X-Correlation-ID", $"invalid correlation {index} {canaries.Query}");
+            hostile.Headers.TryAddWithoutValidation("X-Custom-Canary", canaries.CustomHeader);
             using var _ = await client.SendAsync(hostile);
         }
 
@@ -93,7 +93,7 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.All(registrationActivities, AssertRegistrationActivity);
         Assert.All(registrationMeasurements, AssertRegistrationMeasurement);
         Assert.Equal(System.Net.HttpStatusCode.InternalServerError, exceptionResponse.StatusCode);
-        Assert.Equal(canaries[10], responseCanaryResponse.Body);
+        Assert.Equal(canaries.Response, responseCanaryResponse.Body);
         Assert.Equal(System.Net.HttpStatusCode.NoContent, rejectedLogResponse.StatusCode);
         Assert.All(healthArtifacts, artifact =>
         {
@@ -119,7 +119,7 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "registration" && entry.State["StatusCode"] == "400" && entry.State["StatusClass"] == "4xx" && entry.State["Result"] == "failure");
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "other" && entry.State["StatusCode"] == "500" && entry.State["StatusClass"] == "5xx" && entry.State["Result"] == "failure");
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "health_live" && entry.State["StatusCode"] == "200" && entry.State["StatusClass"] == "2xx" && entry.State["Result"] == "success");
-        Assert.DoesNotContain(capture.Logs, entry => entry.ToString().Contains(canaries[7], StringComparison.Ordinal));
+        Assert.DoesNotContain(capture.Logs, entry => entry.ToString().Contains(canaries.Exception, StringComparison.Ordinal));
         Assert.Contains(capture.Activities, activity => activity.Status == ActivityStatusCode.Error && activity.Tags.TryGetValue("bridge.route", out var route) && route == "registration" && activity.Tags.TryGetValue("bridge.result", out var result) && result == "failure");
         Assert.All(capture.Activities, activity =>
         {
@@ -140,17 +140,19 @@ public sealed partial class TelemetryCaptureContractTests
 
         var telemetryArtifacts = FlattenArtifacts(capture.Logs, capture.Activities, capture.Measurements);
         var httpArtifacts = FlattenArtifacts(registrationArtifacts.Concat(healthArtifacts).Concat([exceptionResponse, responseCanaryResponse, rejectedLogResponse]));
-        AssertCanariesAreAbsent(canaries, telemetryArtifacts, canaries[10]);
-        AssertCanariesAreAbsent(canaries, httpArtifacts, canaries[10]);
+        AssertCanariesAreAbsent(canaries.All, telemetryArtifacts, canaries.Response);
+        AssertCanariesAreAbsent(canaries.All, httpArtifacts, canaries.Response);
 
-        using var privateKeyJwtApplication = McpOAuthDcrBridge.BridgeApplication.Build(ValidBridgeCommandLine.Create("private_key_jwt", certificatePath: canaries[8]), null, logging => logging.AddProvider(capture.LoggerProvider));
+        var privateKeyJwtArguments = ValidBridgeCommandLine.Create("private_key_jwt", certificatePath: canaries.CertificatePath);
+        Assert.Contains(canaries.CertificatePath, privateKeyJwtArguments);
+        using var privateKeyJwtApplication = McpOAuthDcrBridge.BridgeApplication.Build(privateKeyJwtArguments, null, logging => logging.AddProvider(capture.LoggerProvider));
         await privateKeyJwtApplication.StartAsync();
         using var privateKeyJwtClient = new HttpClient { BaseAddress = new Uri(privateKeyJwtApplication.Urls.Single()) };
         using var privateKeyJwtHealthResponse = await privateKeyJwtClient.GetAsync("/health/ready");
         var privateKeyJwtHealth = await CaptureResponseAsync(privateKeyJwtHealthResponse);
         Assert.Equal(System.Net.HttpStatusCode.OK, privateKeyJwtHealth.StatusCode);
         await privateKeyJwtApplication.StopAsync();
-        Assert.DoesNotContain(canaries[8], FlattenArtifacts(capture.Logs, capture.Activities, capture.Measurements, [privateKeyJwtHealth]), StringComparison.Ordinal);
+        Assert.DoesNotContain(canaries.CertificatePath, FlattenArtifacts(capture.Logs, capture.Activities, capture.Measurements, [privateKeyJwtHealth]), StringComparison.Ordinal);
 
         await application.StopAsync();
     }
@@ -290,5 +292,27 @@ public sealed partial class TelemetryCaptureContractTests
     private sealed record CapturedMeasurement(string Name, string Kind, Dictionary<string, string> Tags)
     {
         public override string ToString() => $"{Name} {Kind} {string.Join(';', Tags.Select(tag => $"{tag.Key}={tag.Value}"))}";
+    }
+
+    private sealed record TestCanaries(
+        string ConfiguredSecret,
+        string RegistrationSecret,
+        string InvalidRedirect,
+        string UnsupportedScope,
+        string Authorization,
+        string Query,
+        string Cookie,
+        string Exception,
+        string CertificatePath,
+        string ConfiguredHeader,
+        string Response,
+        string CustomHeader)
+    {
+        public IReadOnlyList<string> All =>
+        [
+            ConfiguredSecret, RegistrationSecret, InvalidRedirect, UnsupportedScope,
+            Authorization, Query, Cookie, Exception, CertificatePath,
+            ConfiguredHeader, Response, CustomHeader,
+        ];
     }
 }
