@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -32,8 +33,10 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.Contains(canaries.ConfiguredSecret, arguments);
         Assert.Contains(canaries.ConfiguredHeader, arguments);
         await using var application = McpOAuthDcrBridge.BridgeApplication.Build(arguments, null, logging => logging.AddProvider(capture.LoggerProvider));
-        application.MapGet("/test-throw", (HttpContext _) => throw new InvalidOperationException(canaries.Exception));
-        application.MapGet("/test-response", () => Results.Text(canaries.Response));
+        var exceptionMessage = canaries.Exception;
+        var responseBody = canaries.Response;
+        application.MapGet("/test-throw", (HttpContext _) => throw new InvalidOperationException(exceptionMessage));
+        application.MapGet("/test-response", () => Results.Text(responseBody));
         application.MapGet("/test-rejected-log", (ILoggerFactory factory) =>
         {
             LogRejectedCategory(factory.CreateLogger("Framework.Future.Category"), canaries.Authorization);
@@ -42,22 +45,39 @@ public sealed partial class TelemetryCaptureContractTests
         await application.StartAsync();
         using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
 
+        var registrationPath = $"/register?client_id={canaries.Query}&redirect_uri={canaries.InvalidRedirect}";
+        var authorizationHeader = $"Bearer {canaries.Authorization}";
+        var cookieHeader = $"session={canaries.Cookie}";
+        var customHeader = canaries.CustomHeader;
         var registrationCases = new[]
         {
             $"{{\"redirect_uris\":[\"https://client.example.test/callback\"],\"client_secret\":\"{canaries.RegistrationSecret}\"}}",
             $"{{\"redirect_uris\":[\"https://client.example.test/{canaries.InvalidRedirect}\"]}}",
             $"{{\"redirect_uris\":[\"https://client.example.test/callback\"],\"scope\":\"{canaries.UnsupportedScope}\"}}",
         };
+        var privateKeyJwtArguments = ValidBridgeCommandLine.Create("private_key_jwt", certificatePath: canaries.CertificatePath);
+        AssertInputSurfaces(
+            canaries,
+            CreateInputSurfaces(
+                arguments,
+                registrationCases,
+                registrationPath,
+                authorizationHeader,
+                cookieHeader,
+                customHeader,
+                exceptionMessage,
+                responseBody,
+                privateKeyJwtArguments));
         var registrationArtifacts = new List<CapturedResponse>();
         foreach (var json in registrationCases)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"/register?client_id={canaries.Query}&redirect_uri={canaries.InvalidRedirect}")
+            using var request = new HttpRequestMessage(HttpMethod.Post, registrationPath)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json"),
             };
-            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {canaries.Authorization}");
-            request.Headers.TryAddWithoutValidation("Cookie", $"session={canaries.Cookie}");
-            request.Headers.TryAddWithoutValidation("X-Custom-Canary", canaries.CustomHeader);
+            request.Headers.TryAddWithoutValidation("Authorization", authorizationHeader);
+            request.Headers.TryAddWithoutValidation("Cookie", cookieHeader);
+            request.Headers.TryAddWithoutValidation("X-Custom-Canary", customHeader);
             using var response = await client.SendAsync(request);
             registrationArtifacts.Add(await CaptureResponseAsync(response));
         }
@@ -93,7 +113,7 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.All(registrationActivities, AssertRegistrationActivity);
         Assert.All(registrationMeasurements, AssertRegistrationMeasurement);
         Assert.Equal(System.Net.HttpStatusCode.InternalServerError, exceptionResponse.StatusCode);
-        Assert.Equal(canaries.Response, responseCanaryResponse.Body);
+        Assert.Equal(responseBody, responseCanaryResponse.Body);
         Assert.Equal(System.Net.HttpStatusCode.NoContent, rejectedLogResponse.StatusCode);
         Assert.All(healthArtifacts, artifact =>
         {
@@ -143,7 +163,6 @@ public sealed partial class TelemetryCaptureContractTests
         AssertCanariesAreAbsent(canaries.All, telemetryArtifacts, canaries.Response);
         AssertCanariesAreAbsent(canaries.All, httpArtifacts, canaries.Response);
 
-        var privateKeyJwtArguments = ValidBridgeCommandLine.Create("private_key_jwt", certificatePath: canaries.CertificatePath);
         Assert.Contains(canaries.CertificatePath, privateKeyJwtArguments);
         using var privateKeyJwtApplication = McpOAuthDcrBridge.BridgeApplication.Build(privateKeyJwtArguments, null, logging => logging.AddProvider(capture.LoggerProvider));
         await privateKeyJwtApplication.StartAsync();
@@ -168,6 +187,65 @@ public sealed partial class TelemetryCaptureContractTests
         response.Content.Headers.ContentType?.MediaType,
         response.Headers.Concat(response.Content.Headers).ToDictionary(header => header.Key, header => string.Join(",", header.Value), StringComparer.OrdinalIgnoreCase),
         await response.Content.ReadAsStringAsync());
+
+    private static Dictionary<string, string> CreateInputSurfaces(
+        IReadOnlyList<string> arguments,
+        string[] registrationCases,
+        string registrationPath,
+        string authorizationHeader,
+        string cookieHeader,
+        string customHeader,
+        string exceptionMessage,
+        string responseBody,
+        IReadOnlyList<string> privateKeyJwtArguments) => new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["configured_secret"] = ArgumentValue(arguments, "--Bridge:Upstream:ClientAuthentication:ClientSecret"),
+            ["registration_secret"] = JsonPropertyValue(registrationCases[0], "client_secret"),
+            ["invalid_redirect"] = RedirectUriValue(registrationCases[1]),
+            ["unsupported_scope"] = JsonPropertyValue(registrationCases[2], "scope"),
+            ["authorization"] = authorizationHeader["Bearer ".Length..],
+            ["query"] = QueryValue(registrationPath, "client_id"),
+            ["cookie"] = cookieHeader["session=".Length..],
+            ["exception"] = exceptionMessage,
+            ["certificate_path"] = ArgumentValue(privateKeyJwtArguments, "--Bridge:Upstream:ClientAuthentication:CertificatePath"),
+            ["configured_header"] = ArgumentValue(arguments, "--Bridge:Upstream:McpHeaders:0:Values:0"),
+            ["response"] = responseBody,
+            ["custom_header"] = customHeader,
+        };
+
+    private static void AssertInputSurfaces(TestCanaries canaries, Dictionary<string, string> surfaces)
+    {
+        Assert.Equal(TestCanaries.InputSurfaceNames, surfaces.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(canaries.All.Order(StringComparer.Ordinal), surfaces.Values.Order(StringComparer.Ordinal));
+    }
+
+    private static string ArgumentValue(IReadOnlyList<string> arguments, string name)
+    {
+        var index = Enumerable.Range(0, arguments.Count).SingleOrDefault(candidate => arguments[candidate] == name, -1);
+        Assert.InRange(index, 0, arguments.Count - 2);
+        return arguments[index + 1];
+    }
+
+    private static string JsonPropertyValue(string json, string property)
+    {
+        using var document = JsonDocument.Parse(json);
+        Assert.True(document.RootElement.TryGetProperty(property, out var value));
+        return value.GetString()!;
+    }
+
+    private static string RedirectUriValue(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var redirectUri = document.RootElement.GetProperty("redirect_uris")[0].GetString()!;
+        return new Uri(redirectUri, UriKind.Absolute).Segments[^1];
+    }
+
+    private static string QueryValue(string path, string key)
+    {
+        var query = path[(path.IndexOf('?') + 1)..];
+        var value = query.Split('&', StringSplitOptions.None).Single(pair => pair.StartsWith($"{key}=", StringComparison.Ordinal));
+        return value[(key.Length + 1)..];
+    }
 
     private static void AssertRegistrationError(CapturedResponse artifact, string error)
     {
@@ -308,6 +386,13 @@ public sealed partial class TelemetryCaptureContractTests
         string Response,
         string CustomHeader)
     {
+        public static IReadOnlyList<string> InputSurfaceNames =>
+        [
+            "authorization", "certificate_path", "configured_header", "configured_secret",
+            "cookie", "custom_header", "exception", "invalid_redirect", "query",
+            "registration_secret", "response", "unsupported_scope",
+        ];
+
         public IReadOnlyList<string> All =>
         [
             ConfiguredSecret, RegistrationSecret, InvalidRedirect, UnsupportedScope,
