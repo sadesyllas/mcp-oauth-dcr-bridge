@@ -64,9 +64,12 @@ public sealed partial class TelemetryCaptureContractTests
         var registrationLogs = capture.Logs.ToArray();
         var registrationActivities = capture.Activities.ToArray();
         var registrationMeasurements = capture.Measurements.ToArray();
-        using var exceptionResponse = await client.GetAsync($"/test-throw?code={canaries[5]}");
-        using var responseCanaryResponse = await client.GetAsync("/test-response");
-        using var rejectedLogResponse = await client.GetAsync($"/test-rejected-log?code={canaries[5]}");
+        using var exceptionHttpResponse = await client.GetAsync($"/test-throw?code={canaries[5]}");
+        var exceptionResponse = await CaptureResponseAsync(exceptionHttpResponse);
+        using var responseCanaryHttpResponse = await client.GetAsync("/test-response");
+        var responseCanaryResponse = await CaptureResponseAsync(responseCanaryHttpResponse);
+        using var rejectedLogHttpResponse = await client.GetAsync($"/test-rejected-log?code={canaries[5]}");
+        var rejectedLogResponse = await CaptureResponseAsync(rejectedLogHttpResponse);
         var healthArtifacts = new[] { await CaptureResponseAsync(client, "/health/live"), await CaptureResponseAsync(client, "/health/ready") };
         for (var index = 0; index < 100; index++)
         {
@@ -90,7 +93,7 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.All(registrationActivities, AssertRegistrationActivity);
         Assert.All(registrationMeasurements, AssertRegistrationMeasurement);
         Assert.Equal(System.Net.HttpStatusCode.InternalServerError, exceptionResponse.StatusCode);
-        Assert.Equal(canaries[10], await responseCanaryResponse.Content.ReadAsStringAsync());
+        Assert.Equal(canaries[10], responseCanaryResponse.Body);
         Assert.Equal(System.Net.HttpStatusCode.NoContent, rejectedLogResponse.StatusCode);
         Assert.All(healthArtifacts, artifact =>
         {
@@ -136,9 +139,9 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.True(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration").Select(measurement => $"{measurement.Name}:{measurement.Tags["route"]}:{measurement.Tags["status"]}").Distinct(StringComparer.Ordinal).Count() <= 24);
 
         var telemetryArtifacts = FlattenArtifacts(capture.Logs, capture.Activities, capture.Measurements);
-        var httpArtifacts = FlattenArtifacts(registrationArtifacts.Concat(healthArtifacts));
+        var httpArtifacts = FlattenArtifacts(registrationArtifacts.Concat(healthArtifacts).Concat([exceptionResponse, responseCanaryResponse, rejectedLogResponse]));
         AssertCanariesAreAbsent(canaries, telemetryArtifacts, canaries[10]);
-        AssertCanariesAreAbsent(canaries.Where(canary => canary != canaries[10]), httpArtifacts);
+        AssertCanariesAreAbsent(canaries, httpArtifacts, canaries[10]);
 
         using var privateKeyJwtApplication = McpOAuthDcrBridge.BridgeApplication.Build(ValidBridgeCommandLine.Create("private_key_jwt", certificatePath: canaries[8]), null, logging => logging.AddProvider(capture.LoggerProvider));
         await privateKeyJwtApplication.StartAsync();
