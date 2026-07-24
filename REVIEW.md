@@ -877,6 +877,39 @@ with the implemented validation, limits, telemetry, and stateless behavior.
 
 ### M4-04 — The required registration test matrix is missing (high)
 
+**Sixth re-review status: OPEN (2026-07-24).** Commits `39e82be` and
+`2e93eb4` now capture complete registration, exception, response, and health
+HTTP artifacts; assert exact registration log/activity/metric contracts; and
+use distinct body, redirect, scope, Authorization, Cookie, query, response, and
+custom-header canaries. Those changes resolve most of the fifth-pass guidance,
+and the focused telemetry and registration suites pass.
+
+One required surface is still proved only vacuously. The test declares
+`configured-header-canary-c1c71` as `canaries[9]` at
+`TelemetryCaptureContractTests.cs:24`, but the configured MCP header at line 32
+uses `canaries[8]`, the certificate-path canary. No request, configuration
+value, response, exception, or test endpoint injects `canaries[9]`; its absence
+assertions at lines 143–144 therefore cannot detect configured-header leakage.
+Reusing `canaries[8]` for both the configured header and certificate path also
+violates the required distinct-surface evidence. The attempted fix did not
+fully resolve M4-04 because positional canary indexing allowed a declared
+canary to remain unused while the aggregate negative assertion stayed green.
+
+**Revised guidance for the next fix pass:**
+
+1. Configure `Bridge:Upstream:McpHeaders:0:Values:0` with the distinct
+   configured-header canary and reserve the certificate-path canary only for
+   the valid `private_key_jwt` host.
+2. Replace or guard the positional canary array so every declared canary is
+   demonstrably injected into its named surface before absence is asserted.
+   The test must fail if any declared non-response canary is removed from its
+   injection point.
+3. Re-run the focused shared telemetry test and registration contract suite,
+   then every repository completion gate. M4-04 is resolved only when the
+   configured-header and certificate-path canaries are distinct, both are
+   actually exercised, neither appears in complete telemetry/HTTP artifacts,
+   and all gates pass.
+
 **Fifth re-review status: OPEN (2026-07-23).** The shared test now sends valid
 JSON and asserts the exact smuggled-credential, redirect, and scope error bodies,
 and it captures both request metric types. The M4 commit `7d631c0` itself only
@@ -1122,3 +1155,16 @@ they do not replace the milestone-specific tests listed above.
   passed with 0 warnings and 0 errors.
 - `dotnet format McpOAuthDcrBridge.sln --verify-no-changes --no-restore` and
   `git diff --check`: passed.
+
+### 2026-07-24 M4 sixth re-review validation
+
+- Review scope contained coder commits `39e82be`
+  (`M4: complete registration telemetry canary evidence`) and `2e93eb4`
+  (`M4: capture every telemetry response artifact`).
+- Focused shared telemetry capture test: passed, 1 total test, 0 failed,
+  0 skipped.
+- Focused `RegistrationContractTests`: passed, 32 total tests, 0 failed,
+  0 skipped.
+- Static canary-use inspection found that declared `canaries[9]` is never
+  injected, while `canaries[8]` is reused for both the configured MCP header and
+  certificate path. M4-04 therefore remains open despite the passing suites.
