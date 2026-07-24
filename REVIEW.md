@@ -877,6 +877,41 @@ with the implemented validation, limits, telemetry, and stateless behavior.
 
 ### M4-04 — The required registration test matrix is missing (high)
 
+**Seventh re-review status: OPEN (2026-07-24).** Commit `663fa08` fixes the
+specific configured-header/certificate mix-up: named `ConfiguredHeader` and
+`CertificatePath` values are distinct and are supplied to their intended
+configuration arguments. Replacing numeric indices with named record members
+also makes the harness substantially clearer.
+
+The second item in the sixth-pass guidance remains incomplete. `TestCanaries.All`
+is used only by negative absence assertions. Positive injection checks exist for
+`ConfiguredSecret`, `ConfiguredHeader`, and `CertificatePath`, but not for every
+declared non-response surface. For example, removing the
+`RegistrationSecret` interpolation at line 47, the `Cookie` header at line 59,
+or the `CustomHeader` additions at lines 60 and 82 would leave those values in
+`All`, so the negative assertions would still pass. The focused shared capture
+test currently passes, but it still cannot detect those canaries becoming
+unused. The attempted fix therefore resolves the original positional-index bug
+without satisfying the required non-vacuous injection guard.
+
+**Revised guidance for the next fix pass:**
+
+1. Keep the named `TestCanaries` model and the now-correct distinct configured
+   header and certificate-path arguments.
+2. Construct an explicit input-side surface inventory from the same values used
+   to build configuration, registration JSON, request query, Authorization,
+   Cookie/custom headers, exception, certificate path, and response. Assert the
+   exact expected surface names and canary values before requests are sent.
+   Removing any injection must remove or empty an inventory entry and fail this
+   positive assertion; a value merely remaining in `TestCanaries.All` is not
+   evidence that it was exercised.
+3. Preserve the aggregate telemetry/HTTP absence sweep and exact per-registration
+   response/log/activity/metric assertions.
+4. Re-run the focused shared telemetry test and registration contract suite,
+   then every repository completion gate. M4-04 is resolved only when every
+   named canary has positive input-side evidence, complete output-side absence
+   evidence, and all gates pass.
+
 **Sixth re-review status: OPEN (2026-07-24).** Commits `39e82be` and
 `2e93eb4` now capture complete registration, exception, response, and health
 HTTP artifacts; assert exact registration log/activity/metric contracts; and
@@ -1168,3 +1203,16 @@ they do not replace the milestone-specific tests listed above.
 - Static canary-use inspection found that declared `canaries[9]` is never
   injected, while `canaries[8]` is reused for both the configured MCP header and
   certificate path. M4-04 therefore remains open despite the passing suites.
+
+### 2026-07-24 M4 seventh re-review validation
+
+- Review scope contained coder commit `663fa08`
+  (`M4: make telemetry canary surfaces explicit`).
+- Focused shared telemetry capture test: passed, 1 total test, 0 failed,
+  0 skipped.
+- Static inspection confirmed that the configured-header and certificate-path
+  canaries are now distinct and correctly injected.
+- `TestCanaries.All` is consumed only by negative absence assertions. Positive
+  injection guards cover three configuration surfaces but do not cover every
+  registration/request/exception surface, so removing several injection points
+  would not fail the test. M4-04 therefore remains open.
