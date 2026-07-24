@@ -1,4 +1,5 @@
 using McpOAuthDcrBridge.Configuration;
+using System.Net.Http.Headers;
 
 namespace McpOAuthDcrBridge.Discovery;
 
@@ -85,7 +86,10 @@ public static class DiscoveryEndpointExtensions
     private static DiscoveryResult ChallengeResult(BridgeOptions options)
     {
         var metadataUri = new Uri(options.IssuerUri, ".well-known/oauth-protected-resource").AbsoluteUri;
-        var encodedMetadataUri = Uri.EscapeDataString(metadataUri);
-        return new DiscoveryResult(StatusCodes.Status401Unauthorized, null, null, $"Bearer resource_metadata=\"{encodedMetadataUri}\"");
+        return new DiscoveryResult(
+            StatusCodes.Status401Unauthorized,
+            null,
+            null,
+            new AuthenticationHeaderValue("Bearer", $"resource_metadata=\"{metadataUri}\""));
     }
 }

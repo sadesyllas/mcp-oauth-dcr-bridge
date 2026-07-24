@@ -23,7 +23,7 @@ public sealed class DiscoveryContractTests
         Assert.Equal("https://bridge.example.test/register", metadataJson.RootElement.GetProperty("registration_endpoint").GetString());
         Assert.Equal("code", metadataJson.RootElement.GetProperty("response_types_supported")[0].GetString());
         Assert.Equal(System.Net.HttpStatusCode.Unauthorized, challenge.StatusCode);
-        Assert.Equal("Bearer resource_metadata=\"https%3A%2F%2Fbridge.example.test%2F.well-known%2Foauth-protected-resource\"", challenge.Headers.WwwAuthenticate.Single()!.ToString());
+        Assert.Equal("Bearer resource_metadata=\"https://bridge.example.test/.well-known/oauth-protected-resource\"", challenge.Headers.WwwAuthenticate.Single()!.ToString());
         await application.StopAsync();
     }
 
@@ -46,10 +46,8 @@ public sealed class DiscoveryContractTests
 
         Assert.Equal("{\"resource\":\"https://bridge.example.test/mcp\",\"authorization_servers\":[\"https://bridge.example.test/\"],\"scopes_supported\":[\"scope-a\",\"scope-b\"],\"bearer_methods_supported\":[\"header\"]}", await ordinaryProtected.Content.ReadAsStringAsync());
         Assert.Equal("{\"issuer\":\"https://bridge.example.test/\",\"registration_endpoint\":\"https://bridge.example.test/register\",\"authorization_endpoint\":\"https://bridge.example.test/authorize\",\"token_endpoint\":\"https://bridge.example.test/token\",\"response_types_supported\":[\"code\"],\"grant_types_supported\":[\"authorization_code\",\"refresh_token\"],\"token_endpoint_auth_methods_supported\":[\"none\"],\"code_challenge_methods_supported\":[\"S256\"]}", await ordinaryAuthorization.Content.ReadAsStringAsync());
-        Assert.Equal(await ordinaryProtected.Content.ReadAsStringAsync(), await poisonedProtected.Content.ReadAsStringAsync());
-        Assert.Equal(await ordinaryAuthorization.Content.ReadAsStringAsync(), await poisonedAuthorization.Content.ReadAsStringAsync());
-        Assert.Equal("public, max-age=300", poisonedProtected.Headers.CacheControl!.ToString());
-        Assert.Equal("public, max-age=300", poisonedAuthorization.Headers.CacheControl!.ToString());
+        await AssertSameMetadataResponseAsync(ordinaryProtected, poisonedProtected);
+        await AssertSameMetadataResponseAsync(ordinaryAuthorization, poisonedAuthorization);
         await application.StopAsync();
     }
 
@@ -85,6 +83,24 @@ public sealed class DiscoveryContractTests
         using var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), "/mcp"));
 
         AssertChallenge(response);
+        await application.StopAsync();
+    }
+
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    [InlineData("DELETE")]
+    public async Task McpChallengeUsesTheExactCanonicalMetadataUrlForEscapedBasePaths(string method)
+    {
+        await using var application = BridgeContractHost.Create(configure: arguments =>
+        {
+            arguments[arguments.IndexOf("https://bridge.example.test")] = "https://bridge.example.test/bridge%20path/";
+        });
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), "/mcp"));
+
+        AssertChallenge(response, "https://bridge.example.test/bridge%20path/.well-known/oauth-protected-resource");
         await application.StopAsync();
     }
 
@@ -229,6 +245,10 @@ public sealed class DiscoveryContractTests
 
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, declaredResponse.StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, chunkedResponse.StatusCode);
+        Assert.Null(declaredResponse.Content.Headers.ContentType);
+        Assert.Null(chunkedResponse.Content.Headers.ContentType);
+        Assert.Null(declaredResponse.Headers.CacheControl);
+        Assert.Null(chunkedResponse.Headers.CacheControl);
         Assert.Empty(await declaredResponse.Content.ReadAsStringAsync());
         Assert.Empty(await chunkedResponse.Content.ReadAsStringAsync());
         await application.StopAsync();
@@ -245,11 +265,19 @@ public sealed class DiscoveryContractTests
         return await client.SendAsync(request);
     }
 
-    private static void AssertChallenge(HttpResponseMessage response)
+    private static async Task AssertSameMetadataResponseAsync(HttpResponseMessage ordinary, HttpResponseMessage poisoned)
+    {
+        Assert.Equal(ordinary.StatusCode, poisoned.StatusCode);
+        Assert.Equal(ordinary.Content.Headers.ContentType, poisoned.Content.Headers.ContentType);
+        Assert.Equal(ordinary.Headers.CacheControl, poisoned.Headers.CacheControl);
+        Assert.Equal(await ordinary.Content.ReadAsStringAsync(), await poisoned.Content.ReadAsStringAsync());
+    }
+
+    private static void AssertChallenge(HttpResponseMessage response, string metadataUrl = "https://bridge.example.test/.well-known/oauth-protected-resource")
     {
         Assert.Equal(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Single(response.Headers.WwwAuthenticate);
-        Assert.Equal("Bearer resource_metadata=\"https%3A%2F%2Fbridge.example.test%2F.well-known%2Foauth-protected-resource\"", response.Headers.WwwAuthenticate.Single()!.ToString());
+        Assert.Equal($"Bearer resource_metadata=\"{metadataUrl}\"", response.Headers.WwwAuthenticate.Single()!.ToString());
         Assert.Empty(response.Content.ReadAsStringAsync().GetAwaiter().GetResult());
     }
 }
