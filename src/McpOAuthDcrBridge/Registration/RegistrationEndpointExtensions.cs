@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Collections.Immutable;
 using McpOAuthDcrBridge.Configuration;
+using McpOAuthDcrBridge.OAuth;
 
 namespace McpOAuthDcrBridge.Registration;
 
@@ -49,7 +50,7 @@ public static class RegistrationEndpointExtensions
         {
             if (scopeValue.ValueKind != JsonValueKind.String) return Error();
             scope = scopeValue.GetString();
-            if (scope is null || !ScopeAllowed(scope, options.AllowedScopes)) return Error();
+            if (scope is null || !OAuthScopePolicy.IsAllowed(scope, options.AllowedScopes)) return Error();
         }
 
         var response = new Dictionary<string, object>
@@ -65,12 +66,6 @@ public static class RegistrationEndpointExtensions
     }
 
     private static bool HasRejectedField(JsonElement metadata) => RejectedFields.Any(field => metadata.TryGetProperty(field, out _));
-
-    private static bool ScopeAllowed(string scope, ImmutableHashSet<string> allowedScopes)
-    {
-        var tokens = scope.Split(' ', StringSplitOptions.None);
-        return tokens.Length > 0 && tokens.All(OAuthScopeToken.IsValid) && (allowedScopes.Count == 0 || tokens.All(token => allowedScopes.Contains(token)));
-    }
 
     private static bool HasDuplicateProperties(JsonElement metadata) => metadata.EnumerateObject().GroupBy(property => property.Name, StringComparer.Ordinal).Any(group => group.Count() > 1);
 
@@ -103,5 +98,5 @@ public static class RegistrationEndpointExtensions
         return buffer.ToArray();
     }
 
-    private static IResult Error(string code = "invalid_client_metadata") => Results.Json(new { error = code, error_description = "invalid client metadata" }, statusCode: StatusCodes.Status400BadRequest);
+    private static IResult Error(string code = "invalid_client_metadata") => OAuthErrorResult.Json(code, "invalid client metadata");
 }
