@@ -22,4 +22,16 @@ internal static class BridgeContractHost
         configure?.Invoke(arguments);
         return BridgeApplication.Build([.. arguments]);
     }
+
+    /// <summary>Creates a host whose upstream token endpoint points at a local fake server over plain HTTP.</summary>
+    public static WebApplication CreateWithUpstreamToken(string tokenEndpointUrl, int permitLimit = 100, Action<List<string>>? configure = null) =>
+        Create(permitLimit, arguments =>
+        {
+            arguments.Add("--environment");
+            arguments.Add("Development");
+            arguments.Add("--Bridge:AllowHttpForLocalDevelopment");
+            arguments.Add("true");
+            arguments[arguments.IndexOf("https://login.example.test/token")] = tokenEndpointUrl;
+            configure?.Invoke(arguments);
+        });
 }
