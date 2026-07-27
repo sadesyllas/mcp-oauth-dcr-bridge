@@ -39,7 +39,11 @@ credential to the *outbound* request only:
   form field.
 - `client_secret_basic` — the configured client ID and secret are sent as an
   HTTP Basic `Authorization` header.
-- `private_key_jwt` — implemented in milestone M7.
+- `private_key_jwt` — a fresh RFC 7523 client assertion is signed by the
+  configured certificate's private key and added as `client_assertion` and
+  `client_assertion_type` form fields. See
+  [certificate-backed authentication](configuration.md#certificate-backed-private_key_jwt)
+  for the supported certificate format and validation rules.
 
 The credential is generated fresh for the outbound request and is never
 returned downstream, logged, or exposed through diagnostics. Rotating a secret

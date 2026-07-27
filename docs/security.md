@@ -70,3 +70,28 @@ bounded `502`, timeouts to a bounded `504`, and neither response includes
 upstream detail or secrets. Token requests are never automatically retried, so
 an upstream failure cannot be amplified into duplicate authorization-code
 redemption or refresh-token use.
+
+## Certificate-backed `private_key_jwt` threats
+
+A weak, expired, or misused signing certificate could let an attacker forge or
+replay a client assertion, or the bridge could leak the private key through a
+diagnostic surface. `PrivateKeyJwtCertificateLoader` fails startup for a
+missing, corrupted, or wrong-password PKCS#12 file, a certificate without a
+private key, an expired or not-yet-valid certificate, a key-usage extension
+that excludes digital signatures, and an unsupported key algorithm — only RSA
+and P-256 ECDSA are accepted. The private key is loaded into process memory
+only (`X509KeyStorageFlags.EphemeralKeySet`, never a machine or user
+certificate store) and the loaded certificate is excluded from every JSON,
+health, and diagnostic representation of the configuration.
+
+Each token or refresh request generates a fresh assertion: a cryptographically
+random JWT ID (`RandomNumberGenerator`, not a predictable counter), the fixed
+client ID as both issuer and subject, the exact configured token endpoint as
+audience, and a short configured lifetime, all signed fresh from a new key
+handle so concurrent requests cannot interfere with or replay each other's
+assertion. Because a fresh assertion is minted per request and audience-bound
+to the one configured token endpoint, a captured assertion cannot be replayed
+against a different endpoint and has a short window even if intercepted.
+Certificate rotation and rollback are both a file replacement plus a restart
+or redeployment; the bridge caches no key material that would need explicit
+invalidation.
