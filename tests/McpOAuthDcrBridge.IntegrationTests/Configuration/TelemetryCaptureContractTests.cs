@@ -29,7 +29,7 @@ public sealed partial class TelemetryCaptureContractTests
             "configured-header-canary-c1c71", "response-canary-20a8b", "custom-header-canary-3f173",
             "authorize-challenge-canary-9e203", "authorize-state-canary-7d51f", "authorize-scope-canary-4b8a6",
             "token-code-canary-f21ac", "token-verifier-canary-6d905", "token-refresh-canary-b47e2",
-            certificatePasswordCanary);
+            certificatePasswordCanary, "mcp-bearer-canary-2a6d8");
         using var capture = new TelemetryCapture();
         var arguments = ValidBridgeCommandLine.Arguments.Concat([
             "--Bridge:AllowedScopes:0", "mcp.read",
@@ -65,6 +65,8 @@ public sealed partial class TelemetryCaptureContractTests
         var tokenRefreshBody = $"grant_type=refresh_token&client_id=fictional-client&refresh_token={Uri.EscapeDataString(canaries.TokenRefreshToken)}";
         using var tokenAuthorizationCodeRequest = new HttpRequestMessage(HttpMethod.Post, "/token") { Content = new StringContent(tokenAuthorizationCodeBody, Encoding.UTF8, "application/x-www-form-urlencoded") };
         using var tokenRefreshRequest = new HttpRequestMessage(HttpMethod.Post, "/token") { Content = new StringContent(tokenRefreshBody, Encoding.UTF8, "application/x-www-form-urlencoded") };
+        using var mcpRequest = new HttpRequestMessage(HttpMethod.Get, "/mcp");
+        mcpRequest.Headers.TryAddWithoutValidation("Authorization", $"Bearer {canaries.McpBearer}");
         var authorizationHeader = $"Bearer {canaries.Authorization}";
         var cookieHeader = $"session={canaries.Cookie}";
         var customHeader = canaries.CustomHeader;
@@ -90,6 +92,7 @@ public sealed partial class TelemetryCaptureContractTests
                 authorizeScopeRejectedRequest,
                 tokenAuthorizationCodeRequest,
                 tokenRefreshRequest,
+                mcpRequest,
                 exceptionFactory,
                 responseBody,
                 privateKeyJwtArguments));
@@ -118,6 +121,8 @@ public sealed partial class TelemetryCaptureContractTests
         var tokenAuthorizationCodeResponse = await CaptureResponseAsync(tokenAuthorizationCodeHttpResponse);
         using var tokenRefreshHttpResponse = await client.SendAsync(tokenRefreshRequest);
         var tokenRefreshResponse = await CaptureResponseAsync(tokenRefreshHttpResponse);
+        using var mcpHttpResponse = await client.SendAsync(mcpRequest);
+        var mcpResponse = await CaptureResponseAsync(mcpHttpResponse);
         var healthArtifacts = new[] { await CaptureResponseAsync(client, "/health/live"), await CaptureResponseAsync(client, "/health/ready") };
         for (var index = 0; index < 100; index++)
         {
@@ -149,6 +154,7 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, authorizeInvalidRedirectResponse.StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.BadGateway, tokenAuthorizationCodeResponse.StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.BadGateway, tokenRefreshResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.BadGateway, mcpResponse.StatusCode);
         Assert.All(healthArtifacts, artifact =>
         {
             Assert.Equal(System.Net.HttpStatusCode.OK, artifact.StatusCode);
@@ -176,6 +182,7 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "authorization" && entry.State["StatusCode"] == "302" && entry.State["StatusClass"] == "3xx" && entry.State["Result"] == "success");
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "authorization" && entry.State["StatusCode"] == "400" && entry.State["StatusClass"] == "4xx" && entry.State["Result"] == "failure");
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "token" && entry.State["StatusCode"] == "502" && entry.State["StatusClass"] == "5xx" && entry.State["Result"] == "failure");
+        Assert.Contains(capture.Logs, entry => entry.State["Route"] == "mcp" && entry.State["StatusCode"] == "502" && entry.State["StatusClass"] == "5xx" && entry.State["Result"] == "failure");
         Assert.DoesNotContain(capture.Logs, entry => entry.ToString().Contains(canaries.Exception, StringComparison.Ordinal));
         var requestActivities = capture.Activities.Where(activity => activity.Name == "bridge.request").ToArray();
         var upstreamOAuthActivities = capture.Activities.Where(activity => activity.Name == "bridge.upstream.oauth").ToArray();
@@ -199,16 +206,16 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.Contains(capture.Measurements, measurement => measurement.Name == "bridge.requests" && measurement.Kind == "long");
         Assert.Contains(capture.Measurements, measurement => measurement.Name == "bridge.request.duration" && measurement.Kind == "double");
         Assert.All(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration"), measurement => Assert.Equal(["route", "status"], measurement.Tags.Keys.Order(StringComparer.Ordinal)));
-        var allowedRoutes = new HashSet<string>(["registration", "authorization", "token", "health_live", "health_ready", "other"], StringComparer.Ordinal);
+        var allowedRoutes = new HashSet<string>(["registration", "authorization", "token", "mcp", "health_live", "health_ready", "other"], StringComparer.Ordinal);
         Assert.All(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration"), measurement =>
         {
             Assert.Contains(measurement.Tags["route"], allowedRoutes);
             Assert.Contains(measurement.Tags["status"], MetricStatusClasses);
         });
-        Assert.True(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration").Select(measurement => $"{measurement.Name}:{measurement.Tags["route"]}:{measurement.Tags["status"]}").Distinct(StringComparer.Ordinal).Count() <= 28);
+        Assert.True(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration").Select(measurement => $"{measurement.Name}:{measurement.Tags["route"]}:{measurement.Tags["status"]}").Distinct(StringComparer.Ordinal).Count() <= 30);
 
         var telemetryArtifacts = FlattenArtifacts(capture.Logs, capture.Activities, capture.Measurements);
-        var httpArtifacts = FlattenArtifacts(registrationArtifacts.Concat(healthArtifacts).Concat([exceptionResponse, responseCanaryResponse, rejectedLogResponse, authorizeValidResponse, authorizeScopeRejectedResponse, authorizeInvalidRedirectResponse, tokenAuthorizationCodeResponse, tokenRefreshResponse]));
+        var httpArtifacts = FlattenArtifacts(registrationArtifacts.Concat(healthArtifacts).Concat([exceptionResponse, responseCanaryResponse, rejectedLogResponse, authorizeValidResponse, authorizeScopeRejectedResponse, authorizeInvalidRedirectResponse, tokenAuthorizationCodeResponse, tokenRefreshResponse, mcpResponse]));
         AssertCanariesAreAbsent(canaries.All, telemetryArtifacts, canaries.Response);
         AssertCanariesAreAbsent(canaries.All, httpArtifacts, canaries.Response, canaries.AuthorizationChallenge, canaries.AuthorizationState);
 
@@ -268,6 +275,7 @@ public sealed partial class TelemetryCaptureContractTests
         HttpRequestMessage authorizeScopeRejectedRequest,
         HttpRequestMessage tokenAuthorizationCodeRequest,
         HttpRequestMessage tokenRefreshRequest,
+        HttpRequestMessage mcpRequest,
         Func<Exception> exceptionFactory,
         string responseBody,
         IReadOnlyList<string> privateKeyJwtArguments)
@@ -296,6 +304,7 @@ public sealed partial class TelemetryCaptureContractTests
             ["token_code"] = FormValue(await tokenAuthorizationCodeRequest.Content!.ReadAsStringAsync(), "code"),
             ["token_verifier"] = FormValue(await tokenAuthorizationCodeRequest.Content!.ReadAsStringAsync(), "code_verifier"),
             ["token_refresh_token"] = FormValue(await tokenRefreshRequest.Content!.ReadAsStringAsync(), "refresh_token"),
+            ["mcp_bearer"] = HeaderValue(mcpRequest, "Authorization", "Bearer "),
         };
     }
 
@@ -494,13 +503,14 @@ public sealed partial class TelemetryCaptureContractTests
         string TokenCode,
         string TokenVerifier,
         string TokenRefreshToken,
-        string CertificatePassword)
+        string CertificatePassword,
+        string McpBearer)
     {
         public static IReadOnlyList<string> InputSurfaceNames =>
         [
             "authorization", "authorization_challenge", "authorization_scope", "authorization_state",
             "certificate_password", "certificate_path", "configured_header", "configured_secret",
-            "cookie", "custom_header", "exception", "invalid_redirect", "query",
+            "cookie", "custom_header", "exception", "invalid_redirect", "mcp_bearer", "query",
             "registration_secret", "response", "token_code", "token_refresh_token", "token_verifier", "unsupported_scope",
         ];
 
@@ -512,6 +522,7 @@ public sealed partial class TelemetryCaptureContractTests
             AuthorizationChallenge, AuthorizationState, AuthorizationScope,
             CertificatePassword,
             TokenCode, TokenVerifier, TokenRefreshToken,
+            McpBearer,
         ];
     }
 }
