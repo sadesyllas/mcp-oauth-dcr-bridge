@@ -45,3 +45,28 @@ callback. This direct-callback design assumes the upstream authorization
 response does not carry an RFC 9207 `iss` value conflicting with the bridge
 issuer; this assumption is an explicit external interoperability test gate
 rather than a control enforced in code.
+
+## Token and refresh forwarding threats
+
+`POST /token` can be attacked through client-ID substitution, redirect
+mismatch, PKCE-verifier omission, duplicated or conflicting security
+parameters, and downstream credential smuggling (a supplied `client_secret`,
+`client_assertion`, `client_assertion_type`, or `Authorization` header). The
+bridge rejects all of these before any outbound call: `client_id` must equal
+the fixed configured value, `redirect_uri` must exactly match the configured
+allowlist, `code_verifier` and `refresh_token` must be nonempty, and any
+smuggled credential field or header fails the request closed without ever
+reaching the upstream endpoint or appearing in the bounded error response.
+
+The configured upstream client secret or certificate exists only inside the
+bridge process; it is added to the outbound request fresh on every call and is
+never returned downstream, logged, or exposed through diagnostics or health
+output. A refresh token is forwarded exactly once and is never read, stored,
+cached, or reused by the bridge, which eliminates bridge-side replay as a
+threat surface for that credential. Because the bridge has no outbound call in
+`/authorize` but does have one in `/token`, this is also the first point where
+an unreachable or slow upstream must fail safely: connection failures map to a
+bounded `502`, timeouts to a bounded `504`, and neither response includes
+upstream detail or secrets. Token requests are never automatically retried, so
+an upstream failure cannot be amplified into duplicate authorization-code
+redemption or refresh-token use.

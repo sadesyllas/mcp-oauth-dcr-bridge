@@ -14,7 +14,7 @@
 | M3 | OAuth discovery metadata and MCP challenge | ✅ | ✅ | ✅ |
 | M4 | Stateless fixed-client DCR | ✅ | ✅ | ✅ |
 | M5 | Transparent authorization forwarding and S256 PKCE | ✅ | ✅ | ✅ |
-| M6 | Transparent token and refresh forwarding | ⬜ | ⬜ | ⬜ |
+| M6 | Transparent token and refresh forwarding | ✅ | ✅ | ⬜ |
 | M7 | Certificate-backed private-key JWT authentication | ⬜ | ⬜ | ⬜ |
 | M8 | YARP MCP reverse proxy and configured headers | ⬜ | ⬜ | ⬜ |
 | M9 | Streaming, session, cancellation, and failure semantics | ⬜ | ⬜ | ⬜ |
