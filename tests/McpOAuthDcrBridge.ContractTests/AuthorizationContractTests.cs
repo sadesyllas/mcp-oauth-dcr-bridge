@@ -9,6 +9,8 @@ namespace McpOAuthDcrBridge.ContractTests;
 public sealed class AuthorizationContractTests
 {
     private const string Redirect = "https://client.example.test/callback";
+    private static readonly string[] FullParameterSet = ["client_id", "code_challenge", "code_challenge_method", "empty_extension", "login_hint", "prompt", "redirect_uri", "resource", "response_type", "scope", "state"];
+    private static readonly string[] ScopelessParameterSet = ["client_id", "code_challenge", "code_challenge_method", "redirect_uri", "response_type", "state"];
 
     [Fact]
     public async Task ValidAuthorizationRedirectsExactlyToUpstreamPreservingEveryAcceptedParameter()
@@ -36,6 +38,7 @@ public sealed class AuthorizationContractTests
         Assert.Equal("login.example.test", location.Host);
         Assert.Equal("/authorize", location.AbsolutePath);
         var forwarded = QueryHelpers.ParseQuery(location.Query);
+        Assert.Equal(FullParameterSet, forwarded.Keys.Order(StringComparer.Ordinal));
         Assert.Equal("fictional-client", forwarded["client_id"]);
         Assert.Equal(Redirect, forwarded["redirect_uri"]);
         Assert.Equal("code", forwarded["response_type"]);
@@ -47,6 +50,22 @@ public sealed class AuthorizationContractTests
         Assert.Equal("consent", forwarded["prompt"]);
         Assert.Equal("alice@example.test", forwarded["login_hint"]);
         Assert.Equal(string.Empty, forwarded["empty_extension"]);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task RequestWithoutScopeForwardsWithoutAddingOne()
+    {
+        await using var application = BridgeContractHost.Create();
+        await application.StartAsync();
+        using var client = NonRedirectingClient(application);
+        var query = $"client_id=fictional-client&redirect_uri={Uri.EscapeDataString(Redirect)}&response_type=code&code_challenge=challenge&code_challenge_method=S256&state=xyz";
+        using var response = await client.GetAsync($"/authorize?{query}");
+
+        Assert.Equal(HttpStatusCode.Found, response.StatusCode);
+        var forwarded = QueryHelpers.ParseQuery(response.Headers.Location!.Query);
+        Assert.Equal(ScopelessParameterSet, forwarded.Keys.Order(StringComparer.Ordinal));
+        Assert.False(forwarded.ContainsKey("scope"));
         await application.StopAsync();
     }
 

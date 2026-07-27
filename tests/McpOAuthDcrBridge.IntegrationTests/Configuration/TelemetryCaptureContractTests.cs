@@ -12,7 +12,7 @@ namespace McpOAuthDcrBridge.IntegrationTests.Configuration;
 
 public sealed partial class TelemetryCaptureContractTests
 {
-    private static readonly string[] MetricStatusClasses = ["2xx", "4xx", "5xx"];
+    private static readonly string[] MetricStatusClasses = ["2xx", "3xx", "4xx", "5xx"];
 
     [Fact]
     public async Task SharedCaptureHarnessLocksM2TelemetryAndM4RegistrationCanaryContracts()
@@ -21,7 +21,8 @@ public sealed partial class TelemetryCaptureContractTests
             "configured-secret-canary-1fa31", "registration-secret-canary-2b940", "invalid-redirect-canary-4c882",
             "unsupported-scope-canary-8a9e7", "authorization-canary-5ca22", "oauth-query-canary-70bd1",
             "cookie-canary-10a2f", "exception-canary-65cb4", "/run/secrets/certificate-canary-9bc44.pfx",
-            "configured-header-canary-c1c71", "response-canary-20a8b", "custom-header-canary-3f173");
+            "configured-header-canary-c1c71", "response-canary-20a8b", "custom-header-canary-3f173",
+            "authorize-challenge-canary-9e203", "authorize-state-canary-7d51f", "authorize-scope-canary-4b8a6");
         using var capture = new TelemetryCapture();
         var arguments = ValidBridgeCommandLine.Arguments.Concat([
             "--Bridge:AllowedScopes:0", "mcp.read",
@@ -44,9 +45,15 @@ public sealed partial class TelemetryCaptureContractTests
             return Results.NoContent();
         });
         await application.StartAsync();
-        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = new Uri(application.Urls.Single()) };
 
         var registrationPath = $"/register?client_id={canaries.Query}&redirect_uri={canaries.InvalidRedirect}";
+        var authorizeValidPath = $"/authorize?client_id=fictional-client&redirect_uri={Uri.EscapeDataString("https://client.example.test/callback")}&response_type=code&code_challenge={Uri.EscapeDataString(canaries.AuthorizationChallenge)}&code_challenge_method=S256&scope=mcp.read&state={Uri.EscapeDataString(canaries.AuthorizationState)}";
+        var authorizeScopeRejectedPath = $"/authorize?client_id=fictional-client&redirect_uri={Uri.EscapeDataString("https://client.example.test/callback")}&response_type=code&code_challenge=challenge&code_challenge_method=S256&scope={Uri.EscapeDataString(canaries.AuthorizationScope)}";
+        var authorizeInvalidRedirectPath = $"/authorize?client_id=fictional-client&redirect_uri={Uri.EscapeDataString($"https://client.example.test/{canaries.InvalidRedirect}")}&response_type=code&code_challenge=challenge&code_challenge_method=S256";
+        using var authorizeValidRequest = new HttpRequestMessage(HttpMethod.Get, authorizeValidPath);
+        using var authorizeScopeRejectedRequest = new HttpRequestMessage(HttpMethod.Get, authorizeScopeRejectedPath);
+        using var authorizeInvalidRedirectRequest = new HttpRequestMessage(HttpMethod.Get, authorizeInvalidRedirectPath);
         var authorizationHeader = $"Bearer {canaries.Authorization}";
         var cookieHeader = $"session={canaries.Cookie}";
         var customHeader = canaries.CustomHeader;
@@ -66,6 +73,8 @@ public sealed partial class TelemetryCaptureContractTests
             await CreateInputSurfacesAsync(
                 arguments,
                 registrationRequests,
+                authorizeValidRequest,
+                authorizeScopeRejectedRequest,
                 exceptionFactory,
                 responseBody,
                 privateKeyJwtArguments));
@@ -84,6 +93,12 @@ public sealed partial class TelemetryCaptureContractTests
         var responseCanaryResponse = await CaptureResponseAsync(responseCanaryHttpResponse);
         using var rejectedLogHttpResponse = await client.GetAsync($"/test-rejected-log?code={canaries.Query}");
         var rejectedLogResponse = await CaptureResponseAsync(rejectedLogHttpResponse);
+        using var authorizeValidHttpResponse = await client.SendAsync(authorizeValidRequest);
+        var authorizeValidResponse = await CaptureResponseAsync(authorizeValidHttpResponse);
+        using var authorizeScopeRejectedHttpResponse = await client.SendAsync(authorizeScopeRejectedRequest);
+        var authorizeScopeRejectedResponse = await CaptureResponseAsync(authorizeScopeRejectedHttpResponse);
+        using var authorizeInvalidRedirectHttpResponse = await client.SendAsync(authorizeInvalidRedirectRequest);
+        var authorizeInvalidRedirectResponse = await CaptureResponseAsync(authorizeInvalidRedirectHttpResponse);
         var healthArtifacts = new[] { await CaptureResponseAsync(client, "/health/live"), await CaptureResponseAsync(client, "/health/ready") };
         for (var index = 0; index < 100; index++)
         {
@@ -110,6 +125,9 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.Equal(canaries.Exception, await observedException.Task.WaitAsync(TimeSpan.FromSeconds(1)));
         Assert.Equal(responseBody, responseCanaryResponse.Body);
         Assert.Equal(System.Net.HttpStatusCode.NoContent, rejectedLogResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.Found, authorizeValidResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.Found, authorizeScopeRejectedResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, authorizeInvalidRedirectResponse.StatusCode);
         Assert.All(healthArtifacts, artifact =>
         {
             Assert.Equal(System.Net.HttpStatusCode.OK, artifact.StatusCode);
@@ -134,6 +152,8 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "registration" && entry.State["StatusCode"] == "400" && entry.State["StatusClass"] == "4xx" && entry.State["Result"] == "failure");
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "other" && entry.State["StatusCode"] == "500" && entry.State["StatusClass"] == "5xx" && entry.State["Result"] == "failure");
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "health_live" && entry.State["StatusCode"] == "200" && entry.State["StatusClass"] == "2xx" && entry.State["Result"] == "success");
+        Assert.Contains(capture.Logs, entry => entry.State["Route"] == "authorization" && entry.State["StatusCode"] == "302" && entry.State["StatusClass"] == "3xx" && entry.State["Result"] == "success");
+        Assert.Contains(capture.Logs, entry => entry.State["Route"] == "authorization" && entry.State["StatusCode"] == "400" && entry.State["StatusClass"] == "4xx" && entry.State["Result"] == "failure");
         Assert.DoesNotContain(capture.Logs, entry => entry.ToString().Contains(canaries.Exception, StringComparison.Ordinal));
         Assert.Contains(capture.Activities, activity => activity.Status == ActivityStatusCode.Error && activity.Tags.TryGetValue("bridge.route", out var route) && route == "registration" && activity.Tags.TryGetValue("bridge.result", out var result) && result == "failure");
         Assert.All(capture.Activities, activity =>
@@ -145,18 +165,18 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.Contains(capture.Measurements, measurement => measurement.Name == "bridge.requests" && measurement.Kind == "long");
         Assert.Contains(capture.Measurements, measurement => measurement.Name == "bridge.request.duration" && measurement.Kind == "double");
         Assert.All(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration"), measurement => Assert.Equal(["route", "status"], measurement.Tags.Keys.Order(StringComparer.Ordinal)));
-        var allowedRoutes = new HashSet<string>(["registration", "health_live", "health_ready", "other"], StringComparer.Ordinal);
+        var allowedRoutes = new HashSet<string>(["registration", "authorization", "health_live", "health_ready", "other"], StringComparer.Ordinal);
         Assert.All(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration"), measurement =>
         {
             Assert.Contains(measurement.Tags["route"], allowedRoutes);
             Assert.Contains(measurement.Tags["status"], MetricStatusClasses);
         });
-        Assert.True(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration").Select(measurement => $"{measurement.Name}:{measurement.Tags["route"]}:{measurement.Tags["status"]}").Distinct(StringComparer.Ordinal).Count() <= 24);
+        Assert.True(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration").Select(measurement => $"{measurement.Name}:{measurement.Tags["route"]}:{measurement.Tags["status"]}").Distinct(StringComparer.Ordinal).Count() <= 26);
 
         var telemetryArtifacts = FlattenArtifacts(capture.Logs, capture.Activities, capture.Measurements);
-        var httpArtifacts = FlattenArtifacts(registrationArtifacts.Concat(healthArtifacts).Concat([exceptionResponse, responseCanaryResponse, rejectedLogResponse]));
+        var httpArtifacts = FlattenArtifacts(registrationArtifacts.Concat(healthArtifacts).Concat([exceptionResponse, responseCanaryResponse, rejectedLogResponse, authorizeValidResponse, authorizeScopeRejectedResponse, authorizeInvalidRedirectResponse]));
         AssertCanariesAreAbsent(canaries.All, telemetryArtifacts, canaries.Response);
-        AssertCanariesAreAbsent(canaries.All, httpArtifacts, canaries.Response);
+        AssertCanariesAreAbsent(canaries.All, httpArtifacts, canaries.Response, canaries.AuthorizationChallenge, canaries.AuthorizationState);
 
         Assert.Contains(canaries.CertificatePath, privateKeyJwtArguments);
         using var privateKeyJwtApplication = McpOAuthDcrBridge.BridgeApplication.Build(privateKeyJwtArguments, null, logging => logging.AddProvider(capture.LoggerProvider));
@@ -203,6 +223,8 @@ public sealed partial class TelemetryCaptureContractTests
     private static async Task<Dictionary<string, string>> CreateInputSurfacesAsync(
         IReadOnlyList<string> arguments,
         HttpRequestMessage[] registrationRequests,
+        HttpRequestMessage authorizeValidRequest,
+        HttpRequestMessage authorizeScopeRejectedRequest,
         Func<Exception> exceptionFactory,
         string responseBody,
         IReadOnlyList<string> privateKeyJwtArguments)
@@ -224,6 +246,9 @@ public sealed partial class TelemetryCaptureContractTests
             ["configured_header"] = ArgumentValue(arguments, "--Bridge:Upstream:McpHeaders:0:Values:0"),
             ["response"] = responseBody,
             ["custom_header"] = HeaderValue(credentialRequest, "X-Custom-Canary", string.Empty),
+            ["authorization_challenge"] = QueryValue(authorizeValidRequest.RequestUri!.OriginalString, "code_challenge"),
+            ["authorization_state"] = QueryValue(authorizeValidRequest.RequestUri!.OriginalString, "state"),
+            ["authorization_scope"] = QueryValue(authorizeScopeRejectedRequest.RequestUri!.OriginalString, "scope"),
         };
     }
 
@@ -412,11 +437,15 @@ public sealed partial class TelemetryCaptureContractTests
         string CertificatePath,
         string ConfiguredHeader,
         string Response,
-        string CustomHeader)
+        string CustomHeader,
+        string AuthorizationChallenge,
+        string AuthorizationState,
+        string AuthorizationScope)
     {
         public static IReadOnlyList<string> InputSurfaceNames =>
         [
-            "authorization", "certificate_path", "configured_header", "configured_secret",
+            "authorization", "authorization_challenge", "authorization_scope", "authorization_state",
+            "certificate_path", "configured_header", "configured_secret",
             "cookie", "custom_header", "exception", "invalid_redirect", "query",
             "registration_secret", "response", "unsupported_scope",
         ];
@@ -426,6 +455,7 @@ public sealed partial class TelemetryCaptureContractTests
             ConfiguredSecret, RegistrationSecret, InvalidRedirect, UnsupportedScope,
             Authorization, Query, Cookie, Exception, CertificatePath,
             ConfiguredHeader, Response, CustomHeader,
+            AuthorizationChallenge, AuthorizationState, AuthorizationScope,
         ];
     }
 }
