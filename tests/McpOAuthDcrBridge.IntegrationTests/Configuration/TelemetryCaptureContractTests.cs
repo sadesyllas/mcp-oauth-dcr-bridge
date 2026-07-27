@@ -22,7 +22,8 @@ public sealed partial class TelemetryCaptureContractTests
             "unsupported-scope-canary-8a9e7", "authorization-canary-5ca22", "oauth-query-canary-70bd1",
             "cookie-canary-10a2f", "exception-canary-65cb4", "/run/secrets/certificate-canary-9bc44.pfx",
             "configured-header-canary-c1c71", "response-canary-20a8b", "custom-header-canary-3f173",
-            "authorize-challenge-canary-9e203", "authorize-state-canary-7d51f", "authorize-scope-canary-4b8a6");
+            "authorize-challenge-canary-9e203", "authorize-state-canary-7d51f", "authorize-scope-canary-4b8a6",
+            "token-code-canary-f21ac", "token-verifier-canary-6d905", "token-refresh-canary-b47e2");
         using var capture = new TelemetryCapture();
         var arguments = ValidBridgeCommandLine.Arguments.Concat([
             "--Bridge:AllowedScopes:0", "mcp.read",
@@ -54,6 +55,10 @@ public sealed partial class TelemetryCaptureContractTests
         using var authorizeValidRequest = new HttpRequestMessage(HttpMethod.Get, authorizeValidPath);
         using var authorizeScopeRejectedRequest = new HttpRequestMessage(HttpMethod.Get, authorizeScopeRejectedPath);
         using var authorizeInvalidRedirectRequest = new HttpRequestMessage(HttpMethod.Get, authorizeInvalidRedirectPath);
+        var tokenAuthorizationCodeBody = $"grant_type=authorization_code&client_id=fictional-client&code={Uri.EscapeDataString(canaries.TokenCode)}&code_verifier={Uri.EscapeDataString(canaries.TokenVerifier)}&redirect_uri={Uri.EscapeDataString("https://client.example.test/callback")}";
+        var tokenRefreshBody = $"grant_type=refresh_token&client_id=fictional-client&refresh_token={Uri.EscapeDataString(canaries.TokenRefreshToken)}";
+        using var tokenAuthorizationCodeRequest = new HttpRequestMessage(HttpMethod.Post, "/token") { Content = new StringContent(tokenAuthorizationCodeBody, Encoding.UTF8, "application/x-www-form-urlencoded") };
+        using var tokenRefreshRequest = new HttpRequestMessage(HttpMethod.Post, "/token") { Content = new StringContent(tokenRefreshBody, Encoding.UTF8, "application/x-www-form-urlencoded") };
         var authorizationHeader = $"Bearer {canaries.Authorization}";
         var cookieHeader = $"session={canaries.Cookie}";
         var customHeader = canaries.CustomHeader;
@@ -75,6 +80,8 @@ public sealed partial class TelemetryCaptureContractTests
                 registrationRequests,
                 authorizeValidRequest,
                 authorizeScopeRejectedRequest,
+                tokenAuthorizationCodeRequest,
+                tokenRefreshRequest,
                 exceptionFactory,
                 responseBody,
                 privateKeyJwtArguments));
@@ -99,6 +106,10 @@ public sealed partial class TelemetryCaptureContractTests
         var authorizeScopeRejectedResponse = await CaptureResponseAsync(authorizeScopeRejectedHttpResponse);
         using var authorizeInvalidRedirectHttpResponse = await client.SendAsync(authorizeInvalidRedirectRequest);
         var authorizeInvalidRedirectResponse = await CaptureResponseAsync(authorizeInvalidRedirectHttpResponse);
+        using var tokenAuthorizationCodeHttpResponse = await client.SendAsync(tokenAuthorizationCodeRequest);
+        var tokenAuthorizationCodeResponse = await CaptureResponseAsync(tokenAuthorizationCodeHttpResponse);
+        using var tokenRefreshHttpResponse = await client.SendAsync(tokenRefreshRequest);
+        var tokenRefreshResponse = await CaptureResponseAsync(tokenRefreshHttpResponse);
         var healthArtifacts = new[] { await CaptureResponseAsync(client, "/health/live"), await CaptureResponseAsync(client, "/health/ready") };
         for (var index = 0; index < 100; index++)
         {
@@ -128,6 +139,8 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.Equal(System.Net.HttpStatusCode.Found, authorizeValidResponse.StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.Found, authorizeScopeRejectedResponse.StatusCode);
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, authorizeInvalidRedirectResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.BadGateway, tokenAuthorizationCodeResponse.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.BadGateway, tokenRefreshResponse.StatusCode);
         Assert.All(healthArtifacts, artifact =>
         {
             Assert.Equal(System.Net.HttpStatusCode.OK, artifact.StatusCode);
@@ -154,27 +167,40 @@ public sealed partial class TelemetryCaptureContractTests
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "health_live" && entry.State["StatusCode"] == "200" && entry.State["StatusClass"] == "2xx" && entry.State["Result"] == "success");
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "authorization" && entry.State["StatusCode"] == "302" && entry.State["StatusClass"] == "3xx" && entry.State["Result"] == "success");
         Assert.Contains(capture.Logs, entry => entry.State["Route"] == "authorization" && entry.State["StatusCode"] == "400" && entry.State["StatusClass"] == "4xx" && entry.State["Result"] == "failure");
+        Assert.Contains(capture.Logs, entry => entry.State["Route"] == "token" && entry.State["StatusCode"] == "502" && entry.State["StatusClass"] == "5xx" && entry.State["Result"] == "failure");
         Assert.DoesNotContain(capture.Logs, entry => entry.ToString().Contains(canaries.Exception, StringComparison.Ordinal));
-        Assert.Contains(capture.Activities, activity => activity.Status == ActivityStatusCode.Error && activity.Tags.TryGetValue("bridge.route", out var route) && route == "registration" && activity.Tags.TryGetValue("bridge.result", out var result) && result == "failure");
-        Assert.All(capture.Activities, activity =>
+        var requestActivities = capture.Activities.Where(activity => activity.Name == "bridge.request").ToArray();
+        var upstreamOAuthActivities = capture.Activities.Where(activity => activity.Name == "bridge.upstream.oauth").ToArray();
+        Assert.Contains(requestActivities, activity => activity.Status == ActivityStatusCode.Error && activity.Tags.TryGetValue("bridge.route", out var route) && route == "registration" && activity.Tags.TryGetValue("bridge.result", out var result) && result == "failure");
+        Assert.All(requestActivities, activity =>
         {
             Assert.Equal(["bridge.correlation_id", "bridge.method", "bridge.result", "bridge.route", "http.response.status_code"], activity.Tags.Keys.Order(StringComparer.Ordinal));
+            Assert.Empty(activity.Events);
+            Assert.Empty(activity.Baggage);
+        });
+        Assert.Equal(2, upstreamOAuthActivities.Length);
+        Assert.All(upstreamOAuthActivities, activity =>
+        {
+            Assert.Equal(ActivityStatusCode.Error, activity.Status);
+            Assert.Equal(["bridge.grant", "bridge.result"], activity.Tags.Keys.Order(StringComparer.Ordinal));
+            Assert.True(activity.Tags["bridge.grant"] is "authorization_code" or "refresh_token");
+            Assert.Equal("error", activity.Tags["bridge.result"]);
             Assert.Empty(activity.Events);
             Assert.Empty(activity.Baggage);
         });
         Assert.Contains(capture.Measurements, measurement => measurement.Name == "bridge.requests" && measurement.Kind == "long");
         Assert.Contains(capture.Measurements, measurement => measurement.Name == "bridge.request.duration" && measurement.Kind == "double");
         Assert.All(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration"), measurement => Assert.Equal(["route", "status"], measurement.Tags.Keys.Order(StringComparer.Ordinal)));
-        var allowedRoutes = new HashSet<string>(["registration", "authorization", "health_live", "health_ready", "other"], StringComparer.Ordinal);
+        var allowedRoutes = new HashSet<string>(["registration", "authorization", "token", "health_live", "health_ready", "other"], StringComparer.Ordinal);
         Assert.All(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration"), measurement =>
         {
             Assert.Contains(measurement.Tags["route"], allowedRoutes);
             Assert.Contains(measurement.Tags["status"], MetricStatusClasses);
         });
-        Assert.True(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration").Select(measurement => $"{measurement.Name}:{measurement.Tags["route"]}:{measurement.Tags["status"]}").Distinct(StringComparer.Ordinal).Count() <= 26);
+        Assert.True(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration").Select(measurement => $"{measurement.Name}:{measurement.Tags["route"]}:{measurement.Tags["status"]}").Distinct(StringComparer.Ordinal).Count() <= 28);
 
         var telemetryArtifacts = FlattenArtifacts(capture.Logs, capture.Activities, capture.Measurements);
-        var httpArtifacts = FlattenArtifacts(registrationArtifacts.Concat(healthArtifacts).Concat([exceptionResponse, responseCanaryResponse, rejectedLogResponse, authorizeValidResponse, authorizeScopeRejectedResponse, authorizeInvalidRedirectResponse]));
+        var httpArtifacts = FlattenArtifacts(registrationArtifacts.Concat(healthArtifacts).Concat([exceptionResponse, responseCanaryResponse, rejectedLogResponse, authorizeValidResponse, authorizeScopeRejectedResponse, authorizeInvalidRedirectResponse, tokenAuthorizationCodeResponse, tokenRefreshResponse]));
         AssertCanariesAreAbsent(canaries.All, telemetryArtifacts, canaries.Response);
         AssertCanariesAreAbsent(canaries.All, httpArtifacts, canaries.Response, canaries.AuthorizationChallenge, canaries.AuthorizationState);
 
@@ -225,6 +251,8 @@ public sealed partial class TelemetryCaptureContractTests
         HttpRequestMessage[] registrationRequests,
         HttpRequestMessage authorizeValidRequest,
         HttpRequestMessage authorizeScopeRejectedRequest,
+        HttpRequestMessage tokenAuthorizationCodeRequest,
+        HttpRequestMessage tokenRefreshRequest,
         Func<Exception> exceptionFactory,
         string responseBody,
         IReadOnlyList<string> privateKeyJwtArguments)
@@ -249,6 +277,9 @@ public sealed partial class TelemetryCaptureContractTests
             ["authorization_challenge"] = QueryValue(authorizeValidRequest.RequestUri!.OriginalString, "code_challenge"),
             ["authorization_state"] = QueryValue(authorizeValidRequest.RequestUri!.OriginalString, "state"),
             ["authorization_scope"] = QueryValue(authorizeScopeRejectedRequest.RequestUri!.OriginalString, "scope"),
+            ["token_code"] = FormValue(await tokenAuthorizationCodeRequest.Content!.ReadAsStringAsync(), "code"),
+            ["token_verifier"] = FormValue(await tokenAuthorizationCodeRequest.Content!.ReadAsStringAsync(), "code_verifier"),
+            ["token_refresh_token"] = FormValue(await tokenRefreshRequest.Content!.ReadAsStringAsync(), "refresh_token"),
         };
     }
 
@@ -285,6 +316,8 @@ public sealed partial class TelemetryCaptureContractTests
         var value = query.Split('&', StringSplitOptions.None).Single(pair => pair.StartsWith($"{key}=", StringComparison.Ordinal));
         return value[(key.Length + 1)..];
     }
+
+    private static string FormValue(string body, string key) => QueryValue($"?{body}", key);
 
     private static string HeaderValue(HttpRequestMessage request, string name, string prefix)
     {
@@ -365,6 +398,7 @@ public sealed partial class TelemetryCaptureContractTests
                 ShouldListenTo = source => source.Name == "McpOAuthDcrBridge",
                 Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
                 ActivityStopped = activity => Activities.Enqueue(new CapturedActivity(
+                    activity.OperationName,
                     activity.Status,
                     activity.TagObjects.ToDictionary(tag => tag.Key, tag => tag.Value?.ToString() ?? string.Empty, StringComparer.Ordinal),
                     activity.Events.SelectMany(activityEvent => activityEvent.Tags.Select(tag => new KeyValuePair<string, string>($"{activityEvent.Name}:{tag.Key}", tag.Value?.ToString() ?? string.Empty))).ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal),
@@ -415,9 +449,9 @@ public sealed partial class TelemetryCaptureContractTests
         public override string ToString() => $"{Category} {Level} {Exception} {Message} {string.Join(';', State.Select(field => $"{field.Key}={field.Value}"))}";
     }
 
-    private sealed record CapturedActivity(ActivityStatusCode Status, Dictionary<string, string> Tags, Dictionary<string, string> Events, Dictionary<string, string> Baggage)
+    private sealed record CapturedActivity(string Name, ActivityStatusCode Status, Dictionary<string, string> Tags, Dictionary<string, string> Events, Dictionary<string, string> Baggage)
     {
-        public override string ToString() => $"{Status} {string.Join(';', Tags.Select(tag => $"{tag.Key}={tag.Value}"))} {string.Join(';', Events.Select(item => $"{item.Key}={item.Value}"))} {string.Join(';', Baggage.Select(item => $"{item.Key}={item.Value}"))}";
+        public override string ToString() => $"{Name} {Status} {string.Join(';', Tags.Select(tag => $"{tag.Key}={tag.Value}"))} {string.Join(';', Events.Select(item => $"{item.Key}={item.Value}"))} {string.Join(';', Baggage.Select(item => $"{item.Key}={item.Value}"))}";
     }
 
     private sealed record CapturedMeasurement(string Name, string Kind, Dictionary<string, string> Tags)
@@ -440,14 +474,17 @@ public sealed partial class TelemetryCaptureContractTests
         string CustomHeader,
         string AuthorizationChallenge,
         string AuthorizationState,
-        string AuthorizationScope)
+        string AuthorizationScope,
+        string TokenCode,
+        string TokenVerifier,
+        string TokenRefreshToken)
     {
         public static IReadOnlyList<string> InputSurfaceNames =>
         [
             "authorization", "authorization_challenge", "authorization_scope", "authorization_state",
             "certificate_path", "configured_header", "configured_secret",
             "cookie", "custom_header", "exception", "invalid_redirect", "query",
-            "registration_secret", "response", "unsupported_scope",
+            "registration_secret", "response", "token_code", "token_refresh_token", "token_verifier", "unsupported_scope",
         ];
 
         public IReadOnlyList<string> All =>
@@ -456,6 +493,7 @@ public sealed partial class TelemetryCaptureContractTests
             Authorization, Query, Cookie, Exception, CertificatePath,
             ConfiguredHeader, Response, CustomHeader,
             AuthorizationChallenge, AuthorizationState, AuthorizationScope,
+            TokenCode, TokenVerifier, TokenRefreshToken,
         ];
     }
 }
