@@ -1,10 +1,9 @@
 using McpOAuthDcrBridge.Configuration;
-using System.Net.Http.Headers;
 
 namespace McpOAuthDcrBridge.Discovery;
 
 /// <summary>
-/// Maps canonical OAuth discovery documents and the initial unauthenticated MCP challenge.
+/// Maps canonical OAuth discovery documents.
 /// </summary>
 public static class DiscoveryEndpointExtensions
 {
@@ -15,7 +14,6 @@ public static class DiscoveryEndpointExtensions
     {
         application.MapGet("/.well-known/oauth-protected-resource", (HttpRequest request) => MetadataResult(request, ProtectedResourceMetadata(options)));
         application.MapGet("/.well-known/oauth-authorization-server", (HttpRequest request) => MetadataResult(request, AuthorizationServerMetadata(options)));
-        application.MapMethods("/mcp", ["GET", "POST", "DELETE"], (HttpRequest request) => HasBearerCredential(request) ? Results.NotFound() : ChallengeResult(options));
         return application;
     }
 
@@ -45,18 +43,6 @@ public static class DiscoveryEndpointExtensions
         _ => -1,
     };
 
-    private static bool HasBearerCredential(HttpRequest request)
-    {
-        var values = request.Headers.Authorization;
-        if (values.Count != 1 || values[0] is not { } value || !value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return false;
-        var token = value["Bearer ".Length..];
-        if (token.Length == 0) return false;
-        var paddingIndex = token.IndexOf('=');
-        var core = paddingIndex < 0 ? token : token[..paddingIndex];
-        var padding = paddingIndex < 0 ? string.Empty : token[paddingIndex..];
-        return core.Length > 0 && core.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '.' or '_' or '~' or '+' or '/') && padding.All(character => character == '=');
-    }
-
     private static IResult MetadataResult(HttpRequest request, object metadata) =>
         HasBody(request) ? Results.StatusCode(StatusCodes.Status400BadRequest) :
         AcceptsJson(request) ? new DiscoveryResult(StatusCodes.Status200OK, metadata, "public, max-age=300") : Results.StatusCode(StatusCodes.Status406NotAcceptable);
@@ -82,14 +68,4 @@ public static class DiscoveryEndpointExtensions
         token_endpoint_auth_methods_supported = new[] { "none" },
         code_challenge_methods_supported = new[] { "S256" },
     };
-
-    private static DiscoveryResult ChallengeResult(BridgeOptions options)
-    {
-        var metadataUri = new Uri(options.IssuerUri, ".well-known/oauth-protected-resource").AbsoluteUri;
-        return new DiscoveryResult(
-            StatusCodes.Status401Unauthorized,
-            null,
-            null,
-            new AuthenticationHeaderValue("Bearer", $"resource_metadata=\"{metadataUri}\""));
-    }
 }

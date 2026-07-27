@@ -117,7 +117,10 @@ public sealed class DiscoveryContractTests
         request.Headers.TryAddWithoutValidation("Authorization", "Bearer abc.DEF_123+/==");
         using var response = await client.SendAsync(request);
 
-        Assert.Equal(System.Net.HttpStatusCode.NotFound, response.StatusCode);
+        // A present bearer credential is forwarded to the (here, unreachable) configured upstream
+        // instead of receiving the bridge's own challenge; see McpProxyContractTests for proxying
+        // against a real fake upstream.
+        Assert.NotEqual(System.Net.HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Empty(response.Headers.WwwAuthenticate);
         await application.StopAsync();
     }

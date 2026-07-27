@@ -1,6 +1,7 @@
 using McpOAuthDcrBridge.Authorization;
 using McpOAuthDcrBridge.Configuration;
 using McpOAuthDcrBridge.Discovery;
+using McpOAuthDcrBridge.Mcp;
 using McpOAuthDcrBridge.Registration;
 using McpOAuthDcrBridge.Token;
 using Microsoft.AspNetCore.RateLimiting;
@@ -70,6 +71,7 @@ public static class BridgeApplication
         });
         builder.Services.AddHttpClient(TokenEndpointExtensions.HttpClientName, client => client.Timeout = bridgeOptions.Limits.OAuthTimeout)
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        builder.Services.AddMcpReverseProxy(bridgeOptions);
 
         var application = builder.Build();
         application.UseBridgeTelemetry();
@@ -83,12 +85,14 @@ public static class BridgeApplication
             return Task.CompletedTask;
         }));
         application.UseRateLimiter();
+        application.UseMiddleware<McpChallengeMiddleware>();
         application.MapHealthChecks("/health/live");
         application.MapHealthChecks("/health/ready");
         application.MapDiscoveryEndpoints(bridgeOptions);
         application.MapRegistrationEndpoint(bridgeOptions);
         application.MapAuthorizationEndpoint(bridgeOptions);
         application.MapTokenEndpoint(bridgeOptions);
+        application.MapReverseProxy();
 
         return application;
     }
