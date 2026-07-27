@@ -30,7 +30,15 @@ public static class UpstreamClientAuthenticator
                 request.Headers.Authorization = new AuthenticationHeaderValue("Basic", BasicCredential(options.ClientId, authentication.ClientSecret!));
                 break;
             case UpstreamClientAuthenticationMethod.PrivateKeyJwt:
-                throw new NotSupportedException("private_key_jwt upstream authentication is implemented in milestone M7.");
+                var assertion = PrivateKeyJwtAssertionGenerator.Create(
+                    authentication.SigningCertificate!,
+                    authentication.SigningAlgorithm!,
+                    options.ClientId,
+                    options.UpstreamTokenEndpoint.AbsoluteUri,
+                    options.Limits.PrivateKeyJwtAssertionLifetime);
+                fields.Add(new KeyValuePair<string, string>("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"));
+                fields.Add(new KeyValuePair<string, string>("client_assertion", assertion));
+                break;
             default:
                 throw new NotSupportedException($"Unknown upstream client authentication method '{authentication.Method}'.");
         }

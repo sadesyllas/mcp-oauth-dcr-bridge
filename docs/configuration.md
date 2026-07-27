@@ -48,11 +48,29 @@ without whitespace.
 - `none` — no secret or certificate setting is allowed.
 - `client_secret_post` or `client_secret_basic` — requires `ClientSecret` from a
   secret provider; a certificate setting is not allowed.
-- `private_key_jwt` — requires `CertificatePath`; a client secret is not allowed.
+- `private_key_jwt` — requires `CertificatePath` to a PKCS#12 (`.pfx`) file containing the private
+  key; `CertificatePassword` is optional; a client secret is not allowed.
 
 The bridge treats client secrets, certificate material, and static header values
 as secrets. Startup errors name only the invalid configuration key and never
 return values.
+
+### Certificate-backed `private_key_jwt`
+
+The configured PKCS#12 file must carry an RSA or P-256 ECDSA private key, be
+within its validity window, and not disallow digital signatures through a
+present key-usage extension. Startup fails if the file is missing, corrupted,
+has an incorrect password, is expired or not yet valid, uses an unsupported key
+algorithm, or lacks a private key. The private key is loaded into process
+memory only — never a machine or user certificate store — and is never
+exported, logged, serialized, or exposed through errors, health checks, or
+telemetry. Each token or refresh request receives a freshly generated,
+uniquely identified assertion; nothing about the key is cached across
+signatures beyond the loaded certificate itself.
+
+Rotate a certificate by replacing the mounted file and restarting or
+redeploying; the bridge holds no cached copy to invalidate. Rolling back is the
+same operation using the previous file.
 
 ## Static MCP headers and limits
 
@@ -75,6 +93,7 @@ headers are rejected at startup.
 | `ShutdownDrainTimeoutSeconds` | 30 s | 1–300 s |
 | `RateLimitPermitLimit` | 100 | 1–10,000 |
 | `RateLimitWindowSeconds` | 60 s | 1–3,600 s |
+| `PrivateKeyJwtAssertionLifetimeSeconds` | 60 s | 10–600 s |
 
 Configuration is resolved once during startup and injected as immutable options.
 Changing a configuration provider after startup has no effect; deploy a new

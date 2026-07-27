@@ -25,4 +25,7 @@ public sealed class BridgeLimits
 
     /// <summary>Gets the rate-limit replenishment interval.</summary>
     public required TimeSpan RateLimitWindow { get; init; }
+
+    /// <summary>Gets the validity duration of a freshly generated private_key_jwt client assertion.</summary>
+    public required TimeSpan PrivateKeyJwtAssertionLifetime { get; init; }
 }

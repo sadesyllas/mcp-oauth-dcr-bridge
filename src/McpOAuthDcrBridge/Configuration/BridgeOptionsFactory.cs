@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Net;
+using System.Security.Cryptography.X509Certificates;
 using McpOAuthDcrBridge.Telemetry;
 using Microsoft.Extensions.Configuration;
 
@@ -60,6 +61,7 @@ public static class BridgeOptionsFactory
 
         var secret = section["ClientSecret"];
         var certificatePath = section["CertificatePath"];
+        var certificatePassword = section["CertificatePassword"];
         var needsSecret = method is UpstreamClientAuthenticationMethod.ClientSecretPost or UpstreamClientAuthenticationMethod.ClientSecretBasic;
         if (needsSecret != !string.IsNullOrWhiteSpace(secret) || (!needsSecret && !string.IsNullOrWhiteSpace(secret)))
         {
@@ -72,7 +74,33 @@ public static class BridgeOptionsFactory
             throw Invalid("Upstream:ClientAuthentication", "has an inconsistent certificate setting");
         }
 
-        return new UpstreamClientAuthenticationOptions { Method = method, ClientSecret = secret, CertificatePath = certificatePath };
+        if (!needsCertificate && !string.IsNullOrEmpty(certificatePassword))
+        {
+            throw Invalid("Upstream:ClientAuthentication", "has an inconsistent certificate password setting");
+        }
+
+        if (!needsCertificate)
+        {
+            return new UpstreamClientAuthenticationOptions { Method = method, ClientSecret = secret, CertificatePath = certificatePath };
+        }
+
+        X509Certificate2 certificate;
+        try
+        {
+            certificate = PrivateKeyJwtCertificateLoader.LoadFromFile(certificatePath!, certificatePassword);
+        }
+        catch (PrivateKeyJwtCertificateException)
+        {
+            throw Invalid("Upstream:ClientAuthentication:CertificatePath", "does not reference a usable certificate and private key");
+        }
+
+        return new UpstreamClientAuthenticationOptions
+        {
+            Method = method,
+            CertificatePath = certificatePath,
+            SigningCertificate = certificate,
+            SigningAlgorithm = PrivateKeyJwtCertificateLoader.SigningAlgorithm(certificate),
+        };
     }
 
     private static ImmutableHashSet<string> ExactUris(IConfigurationSection section, string key, bool allowHttp)
@@ -145,6 +173,7 @@ public static class BridgeOptionsFactory
             ShutdownDrainTimeout = Duration(section, "ShutdownDrainTimeoutSeconds", 30, 1, 300),
             RateLimitPermitLimit = permitLimit,
             RateLimitWindow = Duration(section, "RateLimitWindowSeconds", 60, 1, 3600),
+            PrivateKeyJwtAssertionLifetime = Duration(section, "PrivateKeyJwtAssertionLifetimeSeconds", 60, 10, 600),
         };
     }
 

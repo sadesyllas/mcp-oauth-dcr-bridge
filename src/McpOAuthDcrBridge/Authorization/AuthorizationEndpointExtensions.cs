@@ -39,34 +39,34 @@ public static class AuthorizationEndpointExtensions
 
         // The client and callback must both be exact configured values before any redirect is issued;
         // this is the sole gate that prevents the endpoint from becoming an open redirect.
-        if (!OAuthFormParameters.TrySingleValue(query,"redirect_uri", out var redirectUri) || !options.AllowedRedirectUris.Contains(redirectUri))
+        if (!OAuthFormParameters.TrySingleValue(query, "redirect_uri", out var redirectUri) || !options.AllowedRedirectUris.Contains(redirectUri))
         {
             return OAuthErrorResult.Json("invalid_request", "redirect_uri is not an allowed callback");
         }
 
-        if (!OAuthFormParameters.TrySingleValue(query,"client_id", out var clientId) || clientId != options.ClientId)
+        if (!OAuthFormParameters.TrySingleValue(query, "client_id", out var clientId) || clientId != options.ClientId)
         {
             return OAuthErrorResult.Json("invalid_request", "client_id does not match the configured client");
         }
 
-        var state = OAuthFormParameters.TrySingleValue(query,"state", out var stateValue) ? stateValue : null;
+        var state = OAuthFormParameters.TrySingleValue(query, "state", out var stateValue) ? stateValue : null;
 
-        if (!OAuthFormParameters.TrySingleValue(query,"response_type", out var responseType) || responseType != "code")
+        if (!OAuthFormParameters.TrySingleValue(query, "response_type", out var responseType) || responseType != "code")
         {
             return RedirectWithError(redirectUri, "unsupported_response_type", "only the authorization code response type is supported", state);
         }
 
-        if (!OAuthFormParameters.TrySingleValue(query,"code_challenge_method", out var challengeMethod) || challengeMethod != "S256")
+        if (!OAuthFormParameters.TrySingleValue(query, "code_challenge_method", out var challengeMethod) || challengeMethod != "S256")
         {
             return RedirectWithError(redirectUri, "invalid_request", "code_challenge_method must be S256", state);
         }
 
-        if (!OAuthFormParameters.TrySingleValue(query,"code_challenge", out var challenge) || challenge.Length == 0)
+        if (!OAuthFormParameters.TrySingleValue(query, "code_challenge", out var challenge) || challenge.Length == 0)
         {
             return RedirectWithError(redirectUri, "invalid_request", "code_challenge is required", state);
         }
 
-        if (OAuthFormParameters.TrySingleValue(query,"scope", out var scope) && !OAuthScopePolicy.IsAllowed(scope, options.AllowedScopes))
+        if (OAuthFormParameters.TrySingleValue(query, "scope", out var scope) && !OAuthScopePolicy.IsAllowed(scope, options.AllowedScopes))
         {
             return RedirectWithError(redirectUri, "invalid_scope", "the requested scope is not permitted", state);
         }
