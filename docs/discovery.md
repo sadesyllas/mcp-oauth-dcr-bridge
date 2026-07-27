@@ -14,4 +14,6 @@ server document advertises only the bridge `/register`, `/authorize`, and
 
 The documents use `Cache-Control: public, max-age=300`. A request to `/mcp`
 without bearer authorization receives a `401` Bearer challenge whose
-`resource_metadata` points back to the canonical protected-resource document.
+`resource_metadata` points back to the canonical protected-resource document;
+see [the MCP reverse proxy](mcp-proxy.md) for the credentialed proxying
+behavior and the upstream challenge rewrite.

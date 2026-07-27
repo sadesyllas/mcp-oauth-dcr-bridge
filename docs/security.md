@@ -95,3 +95,32 @@ against a different endpoint and has a short window even if intercepted.
 Certificate rotation and rollback are both a file replacement plus a restart
 or redeployment; the bridge caches no key material that would need explicit
 invalidation.
+
+## MCP reverse proxy threats
+
+An MCP proxy is a natural SSRF/open-proxy target: a malicious request might try
+to redirect the outbound call to an arbitrary host via an absolute-form
+target, a spoofed `Host`/forwarding header, path traversal, or an encoded
+path, or an attacker-controlled upstream might try to redirect the bridge or
+leak upstream identity through a bearer challenge. YARP is configured with
+exactly one route (matching only the literal `/mcp` path) and one cluster whose
+destination is always the configured upstream origin with a path fixed by a
+`PathSet` transform; none of the above inputs can change scheme, host, port, or
+path, and a near-miss path never matches the route at all. Redirect responses
+from the upstream are relayed to the caller rather than followed by the
+bridge, so a malicious `3xx` cannot pivot the bridge itself into an unintended
+destination.
+
+The bearer token is opaque to the bridge in both directions: it is never
+inspected, decoded, or logged, only forwarded byte-for-byte, which keeps token
+validation exclusively the upstream resource server's responsibility. An
+upstream `401` challenge is rewritten to drop any upstream-identifying
+parameter (for example `realm`) and replace it with the bridge's own
+`resource_metadata`, so a compromised or misconfigured upstream cannot use its
+challenge to redirect a client's re-authentication toward a third party.
+Configured static headers are applied only on the outbound leg, replace
+same-named downstream values so a caller cannot override them, and are
+rejected at both startup and forwarding time if they fall in the shared
+forbidden-header set — closing header-injection and confused-deputy attempts
+through that surface. MCP requests are never automatically retried, since MCP
+tool calls can have side effects that must not be duplicated by the bridge.

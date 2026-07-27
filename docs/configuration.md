@@ -80,7 +80,9 @@ more nonempty `Values`; the full value list is intentional and enables headers
 that validly support multiple values. These values are applied only to upstream
 MCP requests and replace downstream headers with the same name. Authorization,
 transport, forwarding, tracing/correlation, proxy, and MCP-session/protocol
-headers are rejected at startup.
+headers are rejected at startup, and the same forbidden-header set is checked
+again when the bridge actually forwards a request. See
+[the MCP reverse proxy](mcp-proxy.md) for how these headers are applied.
 
 `Bridge:Limits` uses these safe defaults and bounds:
 
