@@ -400,6 +400,7 @@ public sealed class BridgeOptionsFactoryTests
             (Key: "ShutdownDrainTimeoutSeconds", Minimum: 1, Maximum: 300),
             (Key: "RateLimitPermitLimit", Minimum: 1, Maximum: 10000),
             (Key: "RateLimitWindowSeconds", Minimum: 1, Maximum: 3600),
+            (Key: "PrivateKeyJwtAssertionLifetimeSeconds", Minimum: 10, Maximum: 600),
         };
 
         foreach (var limit in limits)
@@ -433,6 +434,8 @@ public sealed class BridgeOptionsFactoryTests
     [InlineData("RateLimitPermitLimit", "10000")]
     [InlineData("RateLimitWindowSeconds", "1")]
     [InlineData("RateLimitWindowSeconds", "3600")]
+    [InlineData("PrivateKeyJwtAssertionLifetimeSeconds", "10")]
+    [InlineData("PrivateKeyJwtAssertionLifetimeSeconds", "600")]
     public void CreateAcceptsLimitBoundaries(string key, string value)
     {
         var options = BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values[$"Bridge:Limits:{key}"] = value), false);
@@ -452,6 +455,7 @@ public sealed class BridgeOptionsFactoryTests
         Assert.Equal(TimeSpan.FromSeconds(30), limits.ShutdownDrainTimeout);
         Assert.Equal(100, limits.RateLimitPermitLimit);
         Assert.Equal(TimeSpan.FromSeconds(60), limits.RateLimitWindow);
+        Assert.Equal(TimeSpan.FromSeconds(60), limits.PrivateKeyJwtAssertionLifetime);
     }
 
     [Theory]
@@ -462,6 +466,7 @@ public sealed class BridgeOptionsFactoryTests
     [InlineData("ShutdownDrainTimeoutSeconds")]
     [InlineData("RateLimitPermitLimit")]
     [InlineData("RateLimitWindowSeconds")]
+    [InlineData("PrivateKeyJwtAssertionLifetimeSeconds")]
     public void CreateRejectsNonNumericLimits(string key)
     {
         Assert.Throws<BridgeConfigurationException>(() => BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values => values[$"Bridge:Limits:{key}"] = "not-a-number"), false));
