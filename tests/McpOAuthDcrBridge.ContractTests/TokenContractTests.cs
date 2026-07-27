@@ -429,6 +429,56 @@ public sealed class TokenContractTests
     }
 
     [Fact]
+    public async Task MalformedPercentEncodingInASecurityFieldForwardsTheLiteralTextRatherThanCrashing()
+    {
+        await using var fakeUpstream = await FakeUpstreamTokenServer.StartAsync();
+        await using var application = BridgeContractHost.CreateWithUpstreamToken(fakeUpstream.TokenEndpoint);
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        const string body = "grant_type=refresh_token&client_id=fictional-client&refresh_token=a%zzb";
+        using var response = await client.PostAsync("/token", new StringContent(body, Encoding.UTF8, "application/x-www-form-urlencoded"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, fakeUpstream.RequestCount);
+        Assert.Equal("a%zzb", fakeUpstream.LastForm!["refresh_token"]);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task BodyOfOnlySeparatorsIsRejectedWithoutReachingUpstream()
+    {
+        await using var fakeUpstream = await FakeUpstreamTokenServer.StartAsync();
+        await using var application = BridgeContractHost.CreateWithUpstreamToken(fakeUpstream.TokenEndpoint);
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var response = await client.PostAsync("/token", new StringContent("&&&===", Encoding.UTF8, "application/x-www-form-urlencoded"));
+
+        AssertBoundedJsonError(response, "invalid_client");
+        Assert.DoesNotContain("===", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Equal(0, fakeUpstream.RequestCount);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task InvalidUtf8BytesInASecurityFieldForwardTheReplacementTextRatherThanCrashing()
+    {
+        await using var fakeUpstream = await FakeUpstreamTokenServer.StartAsync();
+        await using var application = BridgeContractHost.CreateWithUpstreamToken(fakeUpstream.TokenEndpoint);
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        var prefix = Encoding.UTF8.GetBytes("grant_type=refresh_token&client_id=fictional-client&refresh_token=");
+        byte[] invalidUtf8 = [0xFF, 0xFE, 0x80];
+        var body = new ByteArrayContent([.. prefix, .. invalidUtf8]);
+        body.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-www-form-urlencoded");
+        using var response = await client.PostAsync("/token", body);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, fakeUpstream.RequestCount);
+        Assert.False(string.IsNullOrEmpty(fakeUpstream.LastForm!["refresh_token"].ToString()));
+        await application.StopAsync();
+    }
+
+    [Fact]
     public async Task TokenEndpointIsRateLimited()
     {
         await using var fakeUpstream = await FakeUpstreamTokenServer.StartAsync();
