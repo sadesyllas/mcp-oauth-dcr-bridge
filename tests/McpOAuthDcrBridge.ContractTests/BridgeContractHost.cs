@@ -25,13 +25,19 @@ internal static class BridgeContractHost
 
     /// <summary>Creates a host whose upstream token endpoint points at a local fake server over plain HTTP.</summary>
     public static WebApplication CreateWithUpstreamToken(string tokenEndpointUrl, int permitLimit = 100, Action<List<string>>? configure = null) =>
-        Create(permitLimit, arguments =>
-        {
-            arguments.Add("--environment");
-            arguments.Add("Development");
-            arguments.Add("--Bridge:AllowHttpForLocalDevelopment");
-            arguments.Add("true");
-            arguments[arguments.IndexOf("https://login.example.test/token")] = tokenEndpointUrl;
-            configure?.Invoke(arguments);
-        });
+        Create(permitLimit, arguments => AllowLocalHttpUpstream(arguments, "https://login.example.test/token", tokenEndpointUrl, configure));
+
+    /// <summary>Creates a host whose upstream MCP endpoint points at a local fake server over plain HTTP.</summary>
+    public static WebApplication CreateWithUpstreamMcp(string mcpUrl, int permitLimit = 100, Action<List<string>>? configure = null) =>
+        Create(permitLimit, arguments => AllowLocalHttpUpstream(arguments, "https://mcp.example.test/streamable", mcpUrl, configure));
+
+    private static void AllowLocalHttpUpstream(List<string> arguments, string placeholder, string replacement, Action<List<string>>? configure)
+    {
+        arguments.Add("--environment");
+        arguments.Add("Development");
+        arguments.Add("--Bridge:AllowHttpForLocalDevelopment");
+        arguments.Add("true");
+        arguments[arguments.IndexOf(placeholder)] = replacement;
+        configure?.Invoke(arguments);
+    }
 }
