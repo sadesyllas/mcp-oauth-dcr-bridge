@@ -25,7 +25,7 @@ public static class RegistrationEndpointExtensions
     private static async Task<IResult> RegisterAsync(HttpContext context, BridgeOptions options)
     {
         if (!context.Request.HasJsonContentType()) return Error();
-        var bytes = await ReadBodyAsync(context.Request, options.Limits.DcrRequestBodyBytes, context.RequestAborted);
+        var bytes = await BoundedRequestBody.ReadAsync(context.Request, options.Limits.DcrRequestBodyBytes, context.RequestAborted);
         if (bytes is null) return Error();
         try
         {
@@ -81,21 +81,6 @@ public static class RegistrationEndpointExtensions
         }
 
         return true;
-    }
-
-    private static async Task<byte[]?> ReadBodyAsync(HttpRequest request, int maximumBytes, CancellationToken cancellationToken)
-    {
-        if (request.ContentLength is > 0 and var length && length > maximumBytes) return null;
-        await using var buffer = new MemoryStream();
-        var chunk = new byte[8192];
-        int read;
-        while ((read = await request.Body.ReadAsync(chunk, cancellationToken)) > 0)
-        {
-            if (buffer.Length + read > maximumBytes) return null;
-            await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
-        }
-
-        return buffer.ToArray();
     }
 
     private static IResult Error(string code = "invalid_client_metadata") => OAuthErrorResult.Json(code, "invalid client metadata");

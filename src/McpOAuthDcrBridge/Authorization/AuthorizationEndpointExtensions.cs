@@ -32,54 +32,46 @@ public static class AuthorizationEndpointExtensions
 
         // Any duplicated occurrence of a parameter the bridge inspects is ambiguous input and is never
         // trustworthy enough to redirect toward, even to a configured callback.
-        if (SingleValuedParameters.Any(name => query.TryGetValue(name, out var values) && values.Count > 1))
+        if (OAuthFormParameters.HasDuplicate(query, SingleValuedParameters))
         {
             return OAuthErrorResult.Json("invalid_request", "an authorization parameter was duplicated");
         }
 
         // The client and callback must both be exact configured values before any redirect is issued;
         // this is the sole gate that prevents the endpoint from becoming an open redirect.
-        if (!TrySingleValue(query, "redirect_uri", out var redirectUri) || !options.AllowedRedirectUris.Contains(redirectUri))
+        if (!OAuthFormParameters.TrySingleValue(query,"redirect_uri", out var redirectUri) || !options.AllowedRedirectUris.Contains(redirectUri))
         {
             return OAuthErrorResult.Json("invalid_request", "redirect_uri is not an allowed callback");
         }
 
-        if (!TrySingleValue(query, "client_id", out var clientId) || clientId != options.ClientId)
+        if (!OAuthFormParameters.TrySingleValue(query,"client_id", out var clientId) || clientId != options.ClientId)
         {
             return OAuthErrorResult.Json("invalid_request", "client_id does not match the configured client");
         }
 
-        var state = TrySingleValue(query, "state", out var stateValue) ? stateValue : null;
+        var state = OAuthFormParameters.TrySingleValue(query,"state", out var stateValue) ? stateValue : null;
 
-        if (!TrySingleValue(query, "response_type", out var responseType) || responseType != "code")
+        if (!OAuthFormParameters.TrySingleValue(query,"response_type", out var responseType) || responseType != "code")
         {
             return RedirectWithError(redirectUri, "unsupported_response_type", "only the authorization code response type is supported", state);
         }
 
-        if (!TrySingleValue(query, "code_challenge_method", out var challengeMethod) || challengeMethod != "S256")
+        if (!OAuthFormParameters.TrySingleValue(query,"code_challenge_method", out var challengeMethod) || challengeMethod != "S256")
         {
             return RedirectWithError(redirectUri, "invalid_request", "code_challenge_method must be S256", state);
         }
 
-        if (!TrySingleValue(query, "code_challenge", out var challenge) || challenge.Length == 0)
+        if (!OAuthFormParameters.TrySingleValue(query,"code_challenge", out var challenge) || challenge.Length == 0)
         {
             return RedirectWithError(redirectUri, "invalid_request", "code_challenge is required", state);
         }
 
-        if (TrySingleValue(query, "scope", out var scope) && !OAuthScopePolicy.IsAllowed(scope, options.AllowedScopes))
+        if (OAuthFormParameters.TrySingleValue(query,"scope", out var scope) && !OAuthScopePolicy.IsAllowed(scope, options.AllowedScopes))
         {
             return RedirectWithError(redirectUri, "invalid_scope", "the requested scope is not permitted", state);
         }
 
         return Results.Redirect(QueryHelpers.AddQueryString(options.UpstreamAuthorizationEndpoint.AbsoluteUri, query), permanent: false, preserveMethod: false);
-    }
-
-    private static bool TrySingleValue(IQueryCollection query, string name, out string value)
-    {
-        value = string.Empty;
-        if (!query.TryGetValue(name, out var values) || values.Count != 1 || values[0] is not { } single) return false;
-        value = single;
-        return true;
     }
 
     private static IResult RedirectWithError(string redirectUri, string error, string description, string? state)
