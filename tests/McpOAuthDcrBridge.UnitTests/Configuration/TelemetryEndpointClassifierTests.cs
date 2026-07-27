@@ -13,6 +13,7 @@ public sealed class TelemetryEndpointClassifierTests
     [InlineData("/.well-known/oauth-authorization-server", "authorization_server_metadata")]
     [InlineData("/register", "registration")]
     [InlineData("/authorize", "authorization")]
+    [InlineData("/token", "token")]
     [InlineData("/mcp", "mcp")]
     [InlineData("/tool/user-controlled", "other")]
     public void ClassifyReturnsOnlyBoundedCategories(string path, string expected) => Assert.Equal(expected, TelemetryEndpointClassifier.Classify(new PathString(path)));

@@ -2,6 +2,7 @@ using McpOAuthDcrBridge.Authorization;
 using McpOAuthDcrBridge.Configuration;
 using McpOAuthDcrBridge.Discovery;
 using McpOAuthDcrBridge.Registration;
+using McpOAuthDcrBridge.Token;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -15,6 +16,8 @@ namespace McpOAuthDcrBridge;
 /// </summary>
 public static class BridgeApplication
 {
+    private static readonly string[] RateLimitedEndpointPolicies = ["dcr", "authorize", "token"];
+
     /// <summary>
     /// Builds the endpoint-free application host used by the executable and lifecycle tests.
     /// </summary>
@@ -55,19 +58,18 @@ public static class BridgeApplication
         builder.Services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            options.AddFixedWindowLimiter("dcr", limiter =>
+            foreach (var policyName in RateLimitedEndpointPolicies)
             {
-                limiter.PermitLimit = bridgeOptions.Limits.RateLimitPermitLimit;
-                limiter.Window = bridgeOptions.Limits.RateLimitWindow;
-                limiter.QueueLimit = 0;
-            });
-            options.AddFixedWindowLimiter("authorize", limiter =>
-            {
-                limiter.PermitLimit = bridgeOptions.Limits.RateLimitPermitLimit;
-                limiter.Window = bridgeOptions.Limits.RateLimitWindow;
-                limiter.QueueLimit = 0;
-            });
+                options.AddFixedWindowLimiter(policyName, limiter =>
+                {
+                    limiter.PermitLimit = bridgeOptions.Limits.RateLimitPermitLimit;
+                    limiter.Window = bridgeOptions.Limits.RateLimitWindow;
+                    limiter.QueueLimit = 0;
+                });
+            }
         });
+        builder.Services.AddHttpClient(TokenEndpointExtensions.HttpClientName, client => client.Timeout = bridgeOptions.Limits.OAuthTimeout)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 
         var application = builder.Build();
         application.UseBridgeTelemetry();
@@ -86,6 +88,7 @@ public static class BridgeApplication
         application.MapDiscoveryEndpoints(bridgeOptions);
         application.MapRegistrationEndpoint(bridgeOptions);
         application.MapAuthorizationEndpoint(bridgeOptions);
+        application.MapTokenEndpoint(bridgeOptions);
 
         return application;
     }
