@@ -1,8 +1,7 @@
 using System.Net;
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
-using System.Text;
 using System.Text.Json;
+using McpOAuthDcrBridge.TestSupport;
 using Xunit;
 
 namespace McpOAuthDcrBridge.ContractTests;
@@ -70,7 +69,7 @@ public sealed class PrivateKeyJwtTokenContractTests
             assertions.Add(document.RootElement.GetProperty("client_assertion_echo").GetString()!);
         }));
 
-        var jwtIds = assertions.Select(JwtIdOf).ToArray();
+        var jwtIds = assertions.Select(assertion => JwsAssertion.Split(assertion).Payload.GetProperty("jti").GetString()).ToArray();
         Assert.Equal(20, jwtIds.Length);
         Assert.Equal(jwtIds.Length, jwtIds.Distinct(StringComparer.Ordinal).Count());
         await application.StopAsync();
@@ -78,34 +77,13 @@ public sealed class PrivateKeyJwtTokenContractTests
 
     private static void AssertValidAssertion(string assertion, X509Certificate2 certificate, string expectedAudience)
     {
-        var parts = assertion.Split('.');
-        Assert.Equal(3, parts.Length);
-        var header = JsonDocument.Parse(Base64UrlDecode(parts[0])).RootElement;
-        var payload = JsonDocument.Parse(Base64UrlDecode(parts[1])).RootElement;
-        var signature = Convert.FromBase64String(PadBase64Url(parts[2]));
+        var (header, payload, _, _) = JwsAssertion.Split(assertion);
 
         Assert.Equal("RS256", header.GetProperty("alg").GetString());
         Assert.Equal("fictional-client", payload.GetProperty("iss").GetString());
         Assert.Equal("fictional-client", payload.GetProperty("sub").GetString());
         Assert.Equal(expectedAudience, payload.GetProperty("aud").GetString());
         Assert.False(string.IsNullOrEmpty(payload.GetProperty("jti").GetString()));
-
-        using var rsa = certificate.GetRSAPublicKey()!;
-        Assert.True(rsa.VerifyData(Encoding.ASCII.GetBytes($"{parts[0]}.{parts[1]}"), signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
-    }
-
-    private static string JwtIdOf(string assertion)
-    {
-        var parts = assertion.Split('.');
-        var payload = JsonDocument.Parse(Base64UrlDecode(parts[1])).RootElement;
-        return payload.GetProperty("jti").GetString()!;
-    }
-
-    private static byte[] Base64UrlDecode(string value) => Convert.FromBase64String(PadBase64Url(value));
-
-    private static string PadBase64Url(string value)
-    {
-        var padded = value.Replace('-', '+').Replace('_', '/');
-        return padded.PadRight(padded.Length + ((4 - (padded.Length % 4)) % 4), '=');
+        Assert.True(JwsAssertion.Verify(certificate, "RS256", assertion));
     }
 }

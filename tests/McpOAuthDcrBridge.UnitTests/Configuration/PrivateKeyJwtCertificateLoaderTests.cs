@@ -1,5 +1,6 @@
 using System.Security.Cryptography.X509Certificates;
 using McpOAuthDcrBridge.Configuration;
+using McpOAuthDcrBridge.TestSupport;
 using Xunit;
 
 namespace McpOAuthDcrBridge.UnitTests.Configuration;

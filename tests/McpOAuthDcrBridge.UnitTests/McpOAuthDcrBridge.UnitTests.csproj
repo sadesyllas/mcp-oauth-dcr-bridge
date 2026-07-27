@@ -17,4 +17,8 @@
   <ItemGroup>
     <ProjectReference Include="../../src/McpOAuthDcrBridge/McpOAuthDcrBridge.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Shared\TestCertificates.cs" Link="Shared\TestCertificates.cs" />
+    <Compile Include="..\Shared\JwsAssertion.cs" Link="Shared\JwsAssertion.cs" />
+  </ItemGroup>
 </Project>

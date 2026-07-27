@@ -1,10 +1,15 @@
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
-namespace McpOAuthDcrBridge.UnitTests.Configuration;
+namespace McpOAuthDcrBridge.TestSupport;
 
+/// <summary>
+/// Generates self-signed test certificates for exercising private_key_jwt loading and signing
+/// without any real key material. Linked into every test project so there is one authoritative copy.
+/// </summary>
 internal static class TestCertificates
 {
+    /// <summary>Creates a PKCS#12-encoded self-signed RSA certificate.</summary>
     public static byte[] CreateRsaPfx(DateTimeOffset notBefore, DateTimeOffset notAfter, string password = "", X509KeyUsageFlags? keyUsage = null)
     {
         using var rsa = RSA.Create(2048);
@@ -18,6 +23,7 @@ internal static class TestCertificates
         return certificate.Export(X509ContentType.Pfx, password);
     }
 
+    /// <summary>Creates a PKCS#12-encoded self-signed ECDSA certificate on the named curve size.</summary>
     public static byte[] CreateEcPfx(int keySizeBits, string password = "")
     {
         var curve = keySizeBits switch
@@ -32,6 +38,7 @@ internal static class TestCertificates
         return certificate.Export(X509ContentType.Pfx, password);
     }
 
+    /// <summary>Creates a PKCS#12-encoded certificate that carries no private key.</summary>
     public static byte[] CreatePublicOnlyPfx(string password = "")
     {
         using var rsa = RSA.Create(2048);
@@ -41,6 +48,7 @@ internal static class TestCertificates
         return publicOnly.Export(X509ContentType.Pkcs12, password);
     }
 
+    /// <summary>Writes PKCS#12 bytes to a uniquely named temporary file and returns its path.</summary>
     public static string WriteTemporaryPfx(byte[] pfxBytes, string? fileNameWithoutExtension = null)
     {
         var path = Path.Combine(Path.GetTempPath(), $"{fileNameWithoutExtension ?? $"bridge-test-{Guid.NewGuid():N}"}.pfx");
