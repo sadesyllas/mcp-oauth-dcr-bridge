@@ -10,11 +10,18 @@ namespace McpOAuthDcrBridge.IntegrationTests.Configuration;
 
 public sealed class ConfigurationStartupTests
 {
+    private static readonly string ValidCertificatePath = TestCertificates.WriteTemporaryPfx(TestCertificates.CreateRsaPfx(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30)));
+
+    public static IEnumerable<object?[]> ValidCredentialModes()
+    {
+        yield return ["none", null, null];
+        yield return ["client_secret_post", "integration-secret", null];
+        yield return ["client_secret_basic", "integration-secret", null];
+        yield return ["private_key_jwt", null, ValidCertificatePath];
+    }
+
     [Theory]
-    [InlineData("none", null, null)]
-    [InlineData("client_secret_post", "integration-secret", null)]
-    [InlineData("client_secret_basic", "integration-secret", null)]
-    [InlineData("private_key_jwt", null, "/run/secrets/integration.pfx")]
+    [MemberData(nameof(ValidCredentialModes))]
     public async Task ValidCredentialModesBuildAndStop(string method, string? secret, string? certificatePath)
     {
         await using var application = BridgeApplication.Build(ValidBridgeCommandLine.Create(method, secret, certificatePath));

@@ -17,10 +17,13 @@ public sealed partial class TelemetryCaptureContractTests
     [Fact]
     public async Task SharedCaptureHarnessLocksM2TelemetryAndM4RegistrationCanaryContracts()
     {
+        var certificateCanaryPath = TestCertificates.WriteTemporaryPfx(
+            TestCertificates.CreateRsaPfx(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30)),
+            "certificate-canary-9bc44");
         var canaries = new TestCanaries(
             "configured-secret-canary-1fa31", "registration-secret-canary-2b940", "invalid-redirect-canary-4c882",
             "unsupported-scope-canary-8a9e7", "authorization-canary-5ca22", "oauth-query-canary-70bd1",
-            "cookie-canary-10a2f", "exception-canary-65cb4", "/run/secrets/certificate-canary-9bc44.pfx",
+            "cookie-canary-10a2f", "exception-canary-65cb4", certificateCanaryPath,
             "configured-header-canary-c1c71", "response-canary-20a8b", "custom-header-canary-3f173",
             "authorize-challenge-canary-9e203", "authorize-state-canary-7d51f", "authorize-scope-canary-4b8a6",
             "token-code-canary-f21ac", "token-verifier-canary-6d905", "token-refresh-canary-b47e2");

@@ -9,6 +9,9 @@ namespace McpOAuthDcrBridge.UnitTests.Configuration;
 
 public sealed class BridgeOptionsFactoryTests
 {
+    private static readonly string ValidCertificatePath = TestCertificates.WriteTemporaryPfx(TestCertificates.CreateRsaPfx(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30)));
+
+
     [Fact]
     public void CreateResolvesCanonicalPublicUrisAndFixedOutboundDestinations()
     {
@@ -252,8 +255,8 @@ public sealed class BridgeOptionsFactoryTests
         {
             (Secret: (string?)null, CertificatePath: (string?)null),
             (Secret: "secret", CertificatePath: (string?)null),
-            (Secret: (string?)null, CertificatePath: "/run/secrets/client.pfx"),
-            (Secret: "secret", CertificatePath: "/run/secrets/client.pfx"),
+            (Secret: (string?)null, CertificatePath: ValidCertificatePath),
+            (Secret: "secret", CertificatePath: ValidCertificatePath),
         };
         foreach (var method in methods)
         {
@@ -346,8 +349,10 @@ public sealed class BridgeOptionsFactoryTests
     public void OptionsDiagnosticsAndConfigurationFailuresDoNotExposeCredentialsOrHeaderValues()
     {
         const string secretCanary = "client-secret-canary-1f39";
-        const string certificateCanary = "/run/secrets/certificate-canary-1f39.pfx";
         const string headerCanary = "header-value-canary-1f39";
+        var certificateCanary = TestCertificates.WriteTemporaryPfx(
+            TestCertificates.CreateRsaPfx(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30)),
+            "certificate-canary-1f39");
         var options = BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values =>
         {
             values["Bridge:Upstream:ClientAuthentication:Method"] = "client_secret_post";
