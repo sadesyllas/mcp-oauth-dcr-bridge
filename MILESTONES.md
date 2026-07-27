@@ -13,7 +13,7 @@
 | M2 | Safe telemetry, correlation, and health | ✅ | ✅ | ✅ |
 | M3 | OAuth discovery metadata and MCP challenge | ✅ | ✅ | ✅ |
 | M4 | Stateless fixed-client DCR | ✅ | ✅ | ✅ |
-| M5 | Transparent authorization forwarding and S256 PKCE | ✅ | ✅ | ⬜ |
+| M5 | Transparent authorization forwarding and S256 PKCE | ✅ | ✅ | ✅ |
 | M6 | Transparent token and refresh forwarding | ⬜ | ⬜ | ⬜ |
 | M7 | Certificate-backed private-key JWT authentication | ⬜ | ⬜ | ⬜ |
 | M8 | YARP MCP reverse proxy and configured headers | ⬜ | ⬜ | ⬜ |
