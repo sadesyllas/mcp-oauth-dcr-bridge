@@ -17,8 +17,9 @@ public sealed partial class TelemetryCaptureContractTests
     [Fact]
     public async Task SharedCaptureHarnessLocksM2TelemetryAndM4RegistrationCanaryContracts()
     {
+        const string certificatePasswordCanary = "certificate-password-canary-7ea90";
         var certificateCanaryPath = TestCertificates.WriteTemporaryPfx(
-            TestCertificates.CreateRsaPfx(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30)),
+            TestCertificates.CreateRsaPfx(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30), certificatePasswordCanary),
             "certificate-canary-9bc44");
         var canaries = new TestCanaries(
             "configured-secret-canary-1fa31", "registration-secret-canary-2b940", "invalid-redirect-canary-4c882",
@@ -26,7 +27,8 @@ public sealed partial class TelemetryCaptureContractTests
             "cookie-canary-10a2f", "exception-canary-65cb4", certificateCanaryPath,
             "configured-header-canary-c1c71", "response-canary-20a8b", "custom-header-canary-3f173",
             "authorize-challenge-canary-9e203", "authorize-state-canary-7d51f", "authorize-scope-canary-4b8a6",
-            "token-code-canary-f21ac", "token-verifier-canary-6d905", "token-refresh-canary-b47e2");
+            "token-code-canary-f21ac", "token-verifier-canary-6d905", "token-refresh-canary-b47e2",
+            certificatePasswordCanary);
         using var capture = new TelemetryCapture();
         var arguments = ValidBridgeCommandLine.Arguments.Concat([
             "--Bridge:AllowedScopes:0", "mcp.read",
@@ -75,7 +77,9 @@ public sealed partial class TelemetryCaptureContractTests
         using var redirectRequest = CreateRegistrationRequest(registrationPath, registrationCases[1], authorizationHeader, cookieHeader, customHeader);
         using var scopeRequest = CreateRegistrationRequest(registrationPath, registrationCases[2], authorizationHeader, cookieHeader, customHeader);
         HttpRequestMessage[] registrationRequests = [credentialRequest, redirectRequest, scopeRequest];
-        var privateKeyJwtArguments = ValidBridgeCommandLine.Create("private_key_jwt", certificatePath: canaries.CertificatePath);
+        var privateKeyJwtArguments = ValidBridgeCommandLine.Create("private_key_jwt", certificatePath: canaries.CertificatePath)
+            .Concat(["--Bridge:Upstream:ClientAuthentication:CertificatePassword", canaries.CertificatePassword])
+            .ToArray();
         AssertInputSurfaces(
             canaries,
             await CreateInputSurfacesAsync(
@@ -208,14 +212,21 @@ public sealed partial class TelemetryCaptureContractTests
         AssertCanariesAreAbsent(canaries.All, httpArtifacts, canaries.Response, canaries.AuthorizationChallenge, canaries.AuthorizationState);
 
         Assert.Contains(canaries.CertificatePath, privateKeyJwtArguments);
+        Assert.Contains(canaries.CertificatePassword, privateKeyJwtArguments);
         using var privateKeyJwtApplication = McpOAuthDcrBridge.BridgeApplication.Build(privateKeyJwtArguments, null, logging => logging.AddProvider(capture.LoggerProvider));
         await privateKeyJwtApplication.StartAsync();
         using var privateKeyJwtClient = new HttpClient { BaseAddress = new Uri(privateKeyJwtApplication.Urls.Single()) };
         using var privateKeyJwtHealthResponse = await privateKeyJwtClient.GetAsync("/health/ready");
         var privateKeyJwtHealth = await CaptureResponseAsync(privateKeyJwtHealthResponse);
         Assert.Equal(System.Net.HttpStatusCode.OK, privateKeyJwtHealth.StatusCode);
+        var privateKeyJwtTokenBody = $"grant_type=refresh_token&client_id=fictional-client&refresh_token={Uri.EscapeDataString(canaries.TokenRefreshToken)}";
+        using var privateKeyJwtTokenHttpResponse = await privateKeyJwtClient.PostAsync("/token", new StringContent(privateKeyJwtTokenBody, Encoding.UTF8, "application/x-www-form-urlencoded"));
+        var privateKeyJwtTokenResponse = await CaptureResponseAsync(privateKeyJwtTokenHttpResponse);
+        Assert.Equal(System.Net.HttpStatusCode.BadGateway, privateKeyJwtTokenResponse.StatusCode);
         await privateKeyJwtApplication.StopAsync();
-        Assert.DoesNotContain(canaries.CertificatePath, FlattenArtifacts(capture.Logs, capture.Activities, capture.Measurements, [privateKeyJwtHealth]), StringComparison.Ordinal);
+        var privateKeyJwtArtifacts = FlattenArtifacts(capture.Logs, capture.Activities, capture.Measurements, [privateKeyJwtHealth, privateKeyJwtTokenResponse]);
+        Assert.DoesNotContain(canaries.CertificatePath, privateKeyJwtArtifacts, StringComparison.Ordinal);
+        Assert.DoesNotContain(canaries.CertificatePassword, privateKeyJwtArtifacts, StringComparison.Ordinal);
 
         await application.StopAsync();
     }
@@ -274,6 +285,7 @@ public sealed partial class TelemetryCaptureContractTests
             ["cookie"] = HeaderValue(credentialRequest, "Cookie", "session="),
             ["exception"] = exceptionFactory().Message,
             ["certificate_path"] = ArgumentValue(privateKeyJwtArguments, "--Bridge:Upstream:ClientAuthentication:CertificatePath"),
+            ["certificate_password"] = ArgumentValue(privateKeyJwtArguments, "--Bridge:Upstream:ClientAuthentication:CertificatePassword"),
             ["configured_header"] = ArgumentValue(arguments, "--Bridge:Upstream:McpHeaders:0:Values:0"),
             ["response"] = responseBody,
             ["custom_header"] = HeaderValue(credentialRequest, "X-Custom-Canary", string.Empty),
@@ -480,12 +492,13 @@ public sealed partial class TelemetryCaptureContractTests
         string AuthorizationScope,
         string TokenCode,
         string TokenVerifier,
-        string TokenRefreshToken)
+        string TokenRefreshToken,
+        string CertificatePassword)
     {
         public static IReadOnlyList<string> InputSurfaceNames =>
         [
             "authorization", "authorization_challenge", "authorization_scope", "authorization_state",
-            "certificate_path", "configured_header", "configured_secret",
+            "certificate_password", "certificate_path", "configured_header", "configured_secret",
             "cookie", "custom_header", "exception", "invalid_redirect", "query",
             "registration_secret", "response", "token_code", "token_refresh_token", "token_verifier", "unsupported_scope",
         ];
@@ -496,6 +509,7 @@ public sealed partial class TelemetryCaptureContractTests
             Authorization, Query, Cookie, Exception, CertificatePath,
             ConfiguredHeader, Response, CustomHeader,
             AuthorizationChallenge, AuthorizationState, AuthorizationScope,
+            CertificatePassword,
             TokenCode, TokenVerifier, TokenRefreshToken,
         ];
     }
