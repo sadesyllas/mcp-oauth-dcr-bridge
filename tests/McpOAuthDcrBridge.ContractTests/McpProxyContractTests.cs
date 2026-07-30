@@ -409,6 +409,29 @@ public sealed class McpProxyContractTests
     }
 
     [Fact]
+    public async Task UpstreamBearerChallengeWithAnEscapedQuoteInErrorDescriptionIsReEscapedCorrectly()
+    {
+        await using var fakeUpstream = await FakeUpstreamMcpServer.StartAsync();
+        fakeUpstream.OnRequest = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.Headers.WWWAuthenticate = "Bearer error=\"invalid_token\", error_description=\"say \\\"hi\\\" please\"";
+            return Task.CompletedTask;
+        };
+        await using var application = BridgeContractHost.CreateWithUpstreamMcp(fakeUpstream.McpEndpoint);
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/mcp");
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer canary-token");
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var challenge = response.Headers.GetValues("WWW-Authenticate").Single();
+        Assert.Contains("error_description=\"say \\\"hi\\\" please\"", challenge, StringComparison.Ordinal);
+        await application.StopAsync();
+    }
+
+    [Fact]
     public async Task LargeRequestAndResponseBodiesAreRelayedByteForByteWithoutTransformation()
     {
         await using var fakeUpstream = await FakeUpstreamMcpServer.StartAsync();

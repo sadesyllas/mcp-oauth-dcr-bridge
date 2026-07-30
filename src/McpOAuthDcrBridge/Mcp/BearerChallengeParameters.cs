@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace McpOAuthDcrBridge.Mcp;
 
 /// <summary>
@@ -58,7 +60,26 @@ public static class BearerChallengeParameters
         yield return text[start..];
     }
 
-    /// <summary>Strips a matched pair of surrounding double quotes and unescapes <c>\"</c>, best-effort.</summary>
-    private static string Unquote(string value) =>
-        value.Length >= 2 && value[0] == '"' && value[^1] == '"' ? value[1..^1].Replace("\\\"", "\"") : value;
+    /// <summary>Strips a matched pair of surrounding double quotes and unescapes every <c>\</c>-prefixed character, best-effort.</summary>
+    private static string Unquote(string value)
+    {
+        if (value.Length < 2 || value[0] != '"' || value[^1] != '"')
+        {
+            return value;
+        }
+
+        var inner = value[1..^1];
+        var builder = new StringBuilder(inner.Length);
+        for (var index = 0; index < inner.Length; index++)
+        {
+            if (inner[index] == '\\' && index + 1 < inner.Length)
+            {
+                index++;
+            }
+
+            builder.Append(inner[index]);
+        }
+
+        return builder.ToString();
+    }
 }

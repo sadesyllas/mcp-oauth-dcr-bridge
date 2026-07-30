@@ -17,18 +17,21 @@ public static class BearerChallenge
     /// <returns>A complete <c>WWW-Authenticate</c> header value using the <c>Bearer</c> scheme.</returns>
     public static string Build(BridgeOptions options, IReadOnlyDictionary<string, string>? preservedParameters = null)
     {
-        var parameters = new List<string> { $"resource_metadata=\"{options.ProtectedResourceMetadataUri.AbsoluteUri}\"" };
+        var parameters = new List<string> { $"resource_metadata=\"{Escape(options.ProtectedResourceMetadataUri.AbsoluteUri)}\"" };
         if (preservedParameters is not null)
         {
             foreach (var name in PreservedParameterNames)
             {
                 if (preservedParameters.TryGetValue(name, out var value))
                 {
-                    parameters.Add($"{name}=\"{value}\"");
+                    parameters.Add($"{name}=\"{Escape(value)}\"");
                 }
             }
         }
 
         return $"Bearer {string.Join(", ", parameters)}";
     }
+
+    /// <summary>Escapes backslashes and double quotes so a value can be emitted as a valid RFC 7235 quoted-string.</summary>
+    private static string Escape(string value) => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 }
