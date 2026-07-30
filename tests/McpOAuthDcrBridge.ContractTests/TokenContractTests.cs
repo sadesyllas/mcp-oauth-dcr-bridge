@@ -121,6 +121,31 @@ public sealed class TokenContractTests
     }
 
     [Fact]
+    public async Task ReplayedAuthorizationCodeExchangeIsForwardedIndependentlyEachTime()
+    {
+        await using var fakeUpstream = await FakeUpstreamTokenServer.StartAsync();
+        await using var application = BridgeContractHost.CreateWithUpstreamToken(fakeUpstream.TokenEndpoint);
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        var form = new Dictionary<string, string>
+        {
+            ["grant_type"] = "authorization_code",
+            ["client_id"] = "fictional-client",
+            ["code"] = "auth-code-123",
+            ["code_verifier"] = "verifier-abc",
+            ["redirect_uri"] = Redirect,
+        };
+        using var first = await client.PostAsync("/token", new FormUrlEncodedContent(form));
+        using var replay = await client.PostAsync("/token", new FormUrlEncodedContent(form));
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(await first.Content.ReadAsStringAsync(), await replay.Content.ReadAsStringAsync());
+        Assert.Equal(2, fakeUpstream.RequestCount);
+        await application.StopAsync();
+    }
+
+    [Fact]
     public async Task ExtensionAndRepeatedFieldsArePreservedExactlyIncludingEmptyValues()
     {
         await using var fakeUpstream = await FakeUpstreamTokenServer.StartAsync();

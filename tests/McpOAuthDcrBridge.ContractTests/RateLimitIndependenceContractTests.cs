@@ -62,6 +62,25 @@ public sealed class RateLimitIndependenceContractTests
         await application.StopAsync();
     }
 
+    [Fact]
+    public async Task ConcurrentRequestsRacingTheLimiterNeverAdmitMoreThanThePermitLimit()
+    {
+        const int PermitLimit = 5;
+        const int ConcurrentRequests = 30;
+        await using var application = BridgeContractHost.Create(configure: arguments =>
+        {
+            arguments.Add("--Bridge:Limits:DcrRateLimitPermitLimit");
+            arguments.Add(PermitLimit.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        });
+        await application.StartAsync();
+        using var client = NonRedirectingClient(application);
+        var responses = await Task.WhenAll(Enumerable.Range(0, ConcurrentRequests).Select(_ => RegisterStatus(client)));
+
+        Assert.Equal(PermitLimit, responses.Count(status => status == HttpStatusCode.Created));
+        Assert.Equal(ConcurrentRequests - PermitLimit, responses.Count(status => status == HttpStatusCode.TooManyRequests));
+        await application.StopAsync();
+    }
+
     private static async Task<HttpStatusCode> RegisterStatus(HttpClient client)
     {
         using var response = await client.PostAsJsonAsync("/register", new { redirect_uris = new[] { Redirect } });
