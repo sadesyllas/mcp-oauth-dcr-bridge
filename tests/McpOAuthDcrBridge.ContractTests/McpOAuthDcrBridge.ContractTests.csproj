@@ -19,5 +19,6 @@
   <ItemGroup>
     <Compile Include="..\Shared\TestCertificates.cs" Link="Shared\TestCertificates.cs" />
     <Compile Include="..\Shared\JwsAssertion.cs" Link="Shared\JwsAssertion.cs" />
+    <Compile Include="..\Shared\DeterministicFuzzer.cs" Link="Shared\DeterministicFuzzer.cs" />
   </ItemGroup>
 </Project>
