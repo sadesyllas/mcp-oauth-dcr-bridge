@@ -158,7 +158,13 @@ with no upstream call made and no state retained. Residual risk: the limiter
 partitions by endpoint, not by caller identity or source address, so a
 distributed client population can still consume a shared budget; operators
 who need per-client fairness should rate-limit at the ingress in front of the
-bridge as well.
+bridge as well. The limiter's counters are also per-instance in-memory state,
+never shared or replicated: this is deliberate, since the bridge is otherwise
+fully stateless and a distributed limiter would be the one piece of
+cross-instance state the whole design avoids, but it means the effective
+limit scales with replica count under horizontal scaling. Operators running
+more than one replica should size each endpoint's limit accordingly, or
+enforce the aggregate ceiling at the ingress instead.
 
 ## HTTP response hardening
 
