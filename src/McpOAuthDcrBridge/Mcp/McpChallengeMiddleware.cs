@@ -52,8 +52,7 @@ public sealed class McpChallengeMiddleware
 
     private static void WriteChallenge(HttpContext context, BridgeOptions options)
     {
-        var metadataUri = new Uri(options.IssuerUri, ".well-known/oauth-protected-resource").AbsoluteUri;
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        context.Response.Headers.WWWAuthenticate = $"Bearer resource_metadata=\"{metadataUri}\"";
+        context.Response.Headers.WWWAuthenticate = BearerChallenge.Build(options);
     }
 }

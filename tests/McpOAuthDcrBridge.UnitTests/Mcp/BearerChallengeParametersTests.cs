@@ -56,4 +56,30 @@ public sealed class BearerChallengeParametersTests
 
         Assert.Equal("invalid_token", parameters["error"]);
     }
+
+    [Fact]
+    public void ParsePreservesACommaInsideAQuotedValue()
+    {
+        var parameters = BearerChallengeParameters.Parse("error=\"invalid_token\", error_description=\"code expired, retry later\"");
+
+        Assert.Equal("invalid_token", parameters["error"]);
+        Assert.Equal("code expired, retry later", parameters["error_description"]);
+    }
+
+    [Fact]
+    public void ParseUnescapesAQuoteInsideAQuotedValue()
+    {
+        var parameters = BearerChallengeParameters.Parse("error_description=\"say \\\"hi\\\" please\"");
+
+        Assert.Equal("say \"hi\" please", parameters["error_description"]);
+    }
+
+    [Fact]
+    public void ParseNeverThrowsOnATrailingUnterminatedQuote()
+    {
+        var parameters = BearerChallengeParameters.Parse("error=\"invalid_token\", error_description=\"unterminated");
+
+        Assert.Equal("invalid_token", parameters["error"]);
+        Assert.Equal("\"unterminated", parameters["error_description"]);
+    }
 }

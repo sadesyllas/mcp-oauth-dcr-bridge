@@ -59,5 +59,8 @@ public sealed class BridgeOptions
     /// <summary>Gets the canonical token endpoint URI.</summary>
     public Uri TokenUri => PublicUri("token");
 
+    /// <summary>Gets the canonical protected-resource metadata URI used to bind bearer challenges to the bridge.</summary>
+    public Uri ProtectedResourceMetadataUri => new(IssuerUri, ".well-known/oauth-protected-resource");
+
     private Uri PublicUri(string path) => new(ExternalBaseUri, path);
 }

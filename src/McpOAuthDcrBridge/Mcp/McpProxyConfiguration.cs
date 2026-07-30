@@ -13,7 +13,6 @@ namespace McpOAuthDcrBridge.Mcp;
 public static class McpProxyConfiguration
 {
     private const string RouteAndClusterId = "mcp";
-    private static readonly string[] PreservedChallengeParameterNames = ["error", "error_description", "scope"];
 
     /// <summary>Registers YARP with exactly one route and cluster derived from validated bridge options.</summary>
     /// <param name="services">The host service collection.</param>
@@ -65,17 +64,7 @@ public static class McpProxyConfiguration
         if (!challenge.StartsWith("Bearer", StringComparison.OrdinalIgnoreCase)) return default;
 
         var parameters = BearerChallengeParameters.Parse(challenge.Length > "Bearer".Length ? challenge["Bearer".Length..].Trim() : null);
-        var metadataUri = new Uri(options.IssuerUri, ".well-known/oauth-protected-resource").AbsoluteUri;
-        var rewritten = new List<string> { $"resource_metadata=\"{metadataUri}\"" };
-        foreach (var name in PreservedChallengeParameterNames)
-        {
-            if (parameters.TryGetValue(name, out var value))
-            {
-                rewritten.Add($"{name}=\"{value}\"");
-            }
-        }
-
-        context.HttpContext.Response.Headers.WWWAuthenticate = $"Bearer {string.Join(", ", rewritten)}";
+        context.HttpContext.Response.Headers.WWWAuthenticate = BearerChallenge.Build(options, parameters);
         return default;
     }
 

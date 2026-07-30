@@ -165,6 +165,34 @@ public sealed class McpProxyContractTests
     }
 
     [Fact]
+    public async Task MultipleDistinctConfiguredHeadersAreAllAppliedInOneRequest()
+    {
+        await using var fakeUpstream = await FakeUpstreamMcpServer.StartAsync();
+        await using var application = BridgeContractHost.CreateWithUpstreamMcp(fakeUpstream.McpEndpoint, configure: arguments =>
+        {
+            arguments.Add("--Bridge:Upstream:McpHeaders:0:Name");
+            arguments.Add("X-Deployment-Context");
+            arguments.Add("--Bridge:Upstream:McpHeaders:0:Values:0");
+            arguments.Add("configured-context");
+            arguments.Add("--Bridge:Upstream:McpHeaders:1:Name");
+            arguments.Add("X-Ambient-Region");
+            arguments.Add("--Bridge:Upstream:McpHeaders:1:Values:0");
+            arguments.Add("configured-region");
+        });
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/mcp");
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer canary-token");
+        request.Headers.TryAddWithoutValidation("X-Deployment-Context", "downstream-spoofed-context");
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("configured-context", fakeUpstream.LastHeaders!["X-Deployment-Context"].ToString());
+        Assert.Equal("configured-region", fakeUpstream.LastHeaders!["X-Ambient-Region"].ToString());
+        await application.StopAsync();
+    }
+
+    [Fact]
     public async Task ZeroConfiguredHeadersLeavesTheRequestUntouched()
     {
         await using var fakeUpstream = await FakeUpstreamMcpServer.StartAsync();
@@ -221,6 +249,44 @@ public sealed class McpProxyContractTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(1, fakeUpstream.RequestCount);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task AbsoluteFormRequestTargetCannotSelectAForeignProxyDestination()
+    {
+        await using var fakeUpstream = await FakeUpstreamMcpServer.StartAsync();
+        await using var application = BridgeContractHost.CreateWithUpstreamMcp(fakeUpstream.McpEndpoint);
+        await application.StartAsync();
+        var localUri = new Uri(application.Urls.Single());
+
+        using var socket = new System.Net.Sockets.TcpClient();
+        await socket.ConnectAsync(localUri.Host, localUri.Port);
+        using var stream = socket.GetStream();
+        var requestLine =
+            "GET http://attacker.example.test/mcp HTTP/1.1\r\n" +
+            $"Host: {localUri.Authority}\r\n" +
+            "Authorization: Bearer canary-token\r\n" +
+            "Connection: close\r\n\r\n";
+        var requestBytes = Encoding.ASCII.GetBytes(requestLine);
+        await stream.WriteAsync(requestBytes);
+
+        using var reader = new StreamReader(stream, Encoding.ASCII);
+        var statusLine = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
+
+        // Either Kestrel/the bridge rejects the malformed absolute-form target outright, or it
+        // normalizes the target onto the local /mcp route and proxies only to the one configured
+        // upstream; either way, the foreign authority in the request line must never be contacted.
+        Assert.NotNull(statusLine);
+        if (statusLine!.Contains(" 200 ", StringComparison.Ordinal))
+        {
+            Assert.Equal(1, fakeUpstream.RequestCount);
+        }
+        else
+        {
+            Assert.Equal(0, fakeUpstream.RequestCount);
+        }
+
         await application.StopAsync();
     }
 
@@ -319,6 +385,30 @@ public sealed class McpProxyContractTests
     }
 
     [Fact]
+    public async Task UpstreamBearerChallengeWithACommaInAQuotedErrorDescriptionIsPreservedInFull()
+    {
+        await using var fakeUpstream = await FakeUpstreamMcpServer.StartAsync();
+        fakeUpstream.OnRequest = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.Headers.WWWAuthenticate = "Bearer error=\"invalid_token\", error_description=\"the token expired, please refresh and retry\"";
+            return Task.CompletedTask;
+        };
+        await using var application = BridgeContractHost.CreateWithUpstreamMcp(fakeUpstream.McpEndpoint);
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/mcp");
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer canary-token");
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var challenge = response.Headers.GetValues("WWW-Authenticate").Single();
+        Assert.Contains("error=\"invalid_token\"", challenge, StringComparison.Ordinal);
+        Assert.Contains("error_description=\"the token expired, please refresh and retry\"", challenge, StringComparison.Ordinal);
+        await application.StopAsync();
+    }
+
+    [Fact]
     public async Task LargeRequestAndResponseBodiesAreRelayedByteForByteWithoutTransformation()
     {
         await using var fakeUpstream = await FakeUpstreamMcpServer.StartAsync();
@@ -337,6 +427,40 @@ public sealed class McpProxyContractTests
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(largeBody, fakeUpstream.LastBody);
         Assert.Equal(largeBody, await response.Content.ReadAsStringAsync());
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task ResponseBodyIsStreamedIncrementallyWithoutWholeBodyBuffering()
+    {
+        await using var fakeUpstream = await FakeUpstreamMcpServer.StartAsync();
+        var releaseSecondChunk = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fakeUpstream.OnRequest = async context =>
+        {
+            await context.Response.WriteAsync("first-chunk");
+            await context.Response.Body.FlushAsync();
+            await releaseSecondChunk.Task;
+            await context.Response.WriteAsync("second-chunk");
+        };
+        await using var application = BridgeContractHost.CreateWithUpstreamMcp(fakeUpstream.McpEndpoint);
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/mcp");
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer canary-token");
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+        var stream = await response.Content.ReadAsStreamAsync();
+        var firstChunkBuffer = new byte[11];
+
+        // The upstream handler is still blocked on releaseSecondChunk at this point. If the proxy
+        // buffered the whole response before relaying any of it, this read would not complete until
+        // the handler finished and the WaitAsync below would time out.
+        await stream.ReadExactlyAsync(firstChunkBuffer).AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("first-chunk", Encoding.ASCII.GetString(firstChunkBuffer));
+
+        releaseSecondChunk.TrySetResult();
+        using var reader = new StreamReader(stream, Encoding.ASCII);
+        var remainder = await reader.ReadToEndAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("second-chunk", remainder);
         await application.StopAsync();
     }
 
