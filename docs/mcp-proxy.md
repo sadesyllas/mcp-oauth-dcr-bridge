@@ -45,6 +45,35 @@ YARP does not automatically retry a failed or redirected upstream response; a
 by the bridge, and a connection failure maps to a bounded `502`/`503`/`504`
 without a second attempt.
 
+## Streaming, sessions, and lifecycle
+
+The proxy has no fixed total-duration timeout on `/mcp`: a Streamable HTTP
+response or server-sent-event stream may run indefinitely as long as it keeps
+making progress. Instead, `Bridge:Limits:McpActivityTimeoutSeconds` bounds
+inactivity — the timer resets on every byte moved in either direction, so an
+actively streaming response is never cut off purely because of its total
+elapsed time, while a stream that goes silent for longer than the configured
+window is ended. `Mcp-Session-Id`, `Last-Event-ID`, and `Accept` are forwarded
+on every request exactly as received, so a client's reconnect — a fresh
+request carrying the session and last-event IDs it was given — resumes the
+same logical session from the upstream's perspective; the bridge holds no
+session state of its own.
+
+Client disconnection or cancellation of an in-progress request immediately
+cancels the outbound call to the upstream, releasing the connection rather
+than continuing to consume upstream resources for an abandoned request. If the
+upstream disconnects abruptly mid-response, the already-sent status code and
+headers are never replaced — the client sees a truncated body rather than a
+retroactive error page — and the bridge does not retry, since a partially
+delivered MCP response may already have had side effects upstream. One
+instance supports at least 100 concurrent active `/mcp` streams without
+cross-session leakage, since each request's outbound connection, headers, and
+body are independent.
+
+Graceful shutdown is bounded by `Bridge:Limits:ShutdownDrainTimeoutSeconds`: new
+requests stop being accepted, and in-flight requests (including open streams)
+are given up to that window to complete before being forcibly ended.
+
 ## Configured static headers
 
 Optional `Bridge:Upstream:McpHeaders` entries are added to the outbound

@@ -16,3 +16,13 @@ outbound endpoints.
 `/health/live` checks only that the process is running. `/health/ready` checks
 the already-validated local startup state and makes no outbound OAuth or MCP
 calls. Neither endpoint exposes configuration or credential details.
+
+## Graceful shutdown
+
+A shutdown signal (for example a container orchestrator's `SIGTERM`) stops the
+bridge from accepting new requests and gives in-flight requests, including
+open MCP streams, up to `Bridge:Limits:ShutdownDrainTimeoutSeconds` to finish
+before they are forcibly ended. Choose a drain window at least as long as the
+slowest expected MCP tool call or streaming response an operator is willing to
+wait for during a rolling deployment; requests still active when the window
+elapses are aborted rather than left to block shutdown indefinitely.
