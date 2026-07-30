@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using McpOAuthDcrBridge.Configuration;
 using McpOAuthDcrBridge.OAuth;
+using McpOAuthDcrBridge.Telemetry;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Primitives;
 
@@ -34,19 +35,19 @@ public static class AuthorizationEndpointExtensions
         // trustworthy enough to redirect toward, even to a configured callback.
         if (OAuthFormParameters.HasDuplicate(query, SingleValuedParameters))
         {
-            return OAuthErrorResult.Json("invalid_request", "an authorization parameter was duplicated");
+            return OAuthErrorResult.Json("authorization", "invalid_request", "an authorization parameter was duplicated");
         }
 
         // The client and callback must both be exact configured values before any redirect is issued;
         // this is the sole gate that prevents the endpoint from becoming an open redirect.
         if (!OAuthFormParameters.TrySingleValue(query, "redirect_uri", out var redirectUri) || !options.AllowedRedirectUris.Contains(redirectUri))
         {
-            return OAuthErrorResult.Json("invalid_request", "redirect_uri is not an allowed callback");
+            return OAuthErrorResult.Json("authorization", "invalid_request", "redirect_uri is not an allowed callback");
         }
 
         if (!OAuthFormParameters.TrySingleValue(query, "client_id", out var clientId) || clientId != options.ClientId)
         {
-            return OAuthErrorResult.Json("invalid_request", "client_id does not match the configured client");
+            return OAuthErrorResult.Json("authorization", "invalid_request", "client_id does not match the configured client");
         }
 
         var state = OAuthFormParameters.TrySingleValue(query, "state", out var stateValue) ? stateValue : null;
@@ -76,6 +77,7 @@ public static class AuthorizationEndpointExtensions
 
     private static IResult RedirectWithError(string redirectUri, string error, string description, string? state)
     {
+        BridgeTelemetry.RecordValidationRejection("authorization", error);
         var parameters = new Dictionary<string, StringValues> { ["error"] = error, ["error_description"] = description };
         if (state is not null) parameters["state"] = state;
         return Results.Redirect(QueryHelpers.AddQueryString(redirectUri, parameters), permanent: false, preserveMethod: false);

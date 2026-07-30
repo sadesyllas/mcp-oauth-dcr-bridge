@@ -1,3 +1,5 @@
+using McpOAuthDcrBridge.Telemetry;
+
 namespace McpOAuthDcrBridge.OAuth;
 
 /// <summary>
@@ -5,11 +7,15 @@ namespace McpOAuthDcrBridge.OAuth;
 /// </summary>
 public static class OAuthErrorResult
 {
-    /// <summary>Returns a bounded, non-redirecting JSON OAuth error response.</summary>
+    /// <summary>Returns a bounded, non-redirecting JSON OAuth error response and records the rejection.</summary>
+    /// <param name="route">The bounded endpoint route category that rejected the request.</param>
     /// <param name="error">The RFC 6749 error code.</param>
     /// <param name="description">A bounded, non-sensitive error description that never echoes caller input.</param>
     /// <param name="statusCode">The HTTP status code; defaults to <see cref="StatusCodes.Status400BadRequest"/>.</param>
     /// <returns>A JSON result carrying the bounded error.</returns>
-    public static IResult Json(string error, string description, int statusCode = StatusCodes.Status400BadRequest) =>
-        Results.Json(new { error, error_description = description }, statusCode: statusCode);
+    public static IResult Json(string route, string error, string description, int statusCode = StatusCodes.Status400BadRequest)
+    {
+        BridgeTelemetry.RecordValidationRejection(route, error);
+        return Results.Json(new { error, error_description = description }, statusCode: statusCode);
+    }
 }

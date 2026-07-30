@@ -141,7 +141,7 @@ public sealed partial class TelemetryCaptureContractTests
         AssertRegistrationError(registrationArtifacts[2], "invalid_client_metadata");
         Assert.Equal(3, registrationLogs.Length);
         Assert.Equal(3, registrationActivities.Length);
-        Assert.Equal(6, registrationMeasurements.Length);
+        Assert.Equal(9, registrationMeasurements.Length);
         Assert.All(registrationLogs, entry => AssertRegistrationLog(entry));
         Assert.All(registrationActivities, AssertRegistrationActivity);
         Assert.All(registrationMeasurements, AssertRegistrationMeasurement);
@@ -213,6 +213,18 @@ public sealed partial class TelemetryCaptureContractTests
             Assert.Contains(measurement.Tags["status"], MetricStatusClasses);
         });
         Assert.True(capture.Measurements.Where(measurement => measurement.Name is "bridge.requests" or "bridge.request.duration").Select(measurement => $"{measurement.Name}:{measurement.Tags["route"]}:{measurement.Tags["status"]}").Distinct(StringComparer.Ordinal).Count() <= 30);
+
+        var allowedRejectionReasons = new HashSet<string>(
+            ["invalid_client_metadata", "invalid_redirect_uri", "invalid_request", "invalid_client", "invalid_grant", "invalid_scope", "unsupported_grant_type", "unsupported_response_type"],
+            StringComparer.Ordinal);
+        Assert.Contains(capture.Measurements, measurement => measurement.Name == "bridge.validation.rejections" && measurement.Kind == "long");
+        Assert.All(capture.Measurements.Where(measurement => measurement.Name == "bridge.validation.rejections"), measurement =>
+        {
+            Assert.Equal(["reason", "route"], measurement.Tags.Keys.Order(StringComparer.Ordinal));
+            Assert.Contains(measurement.Tags["route"], allowedRoutes);
+            Assert.Contains(measurement.Tags["reason"], allowedRejectionReasons);
+        });
+        Assert.True(capture.Measurements.Where(measurement => measurement.Name == "bridge.validation.rejections").Select(measurement => $"{measurement.Tags["route"]}:{measurement.Tags["reason"]}").Distinct(StringComparer.Ordinal).Count() <= 30);
 
         var telemetryArtifacts = FlattenArtifacts(capture.Logs, capture.Activities, capture.Measurements);
         var httpArtifacts = FlattenArtifacts(registrationArtifacts.Concat(healthArtifacts).Concat([exceptionResponse, responseCanaryResponse, rejectedLogResponse, authorizeValidResponse, authorizeScopeRejectedResponse, authorizeInvalidRedirectResponse, tokenAuthorizationCodeResponse, tokenRefreshResponse, mcpResponse]));
@@ -385,7 +397,15 @@ public sealed partial class TelemetryCaptureContractTests
 
     private static void AssertRegistrationMeasurement(CapturedMeasurement measurement)
     {
-        Assert.True(measurement.Name is "bridge.requests" or "bridge.request.duration");
+        Assert.True(measurement.Name is "bridge.requests" or "bridge.request.duration" or "bridge.validation.rejections");
+        if (measurement.Name == "bridge.validation.rejections")
+        {
+            Assert.Equal("registration", measurement.Tags["route"]);
+            Assert.True(measurement.Tags["reason"] is "invalid_client_metadata" or "invalid_redirect_uri");
+            Assert.Equal("long", measurement.Kind);
+            return;
+        }
+
         Assert.Equal("registration", measurement.Tags["route"]);
         Assert.Equal("4xx", measurement.Tags["status"]);
         Assert.Equal(measurement.Name == "bridge.requests" ? "long" : "double", measurement.Kind);

@@ -83,5 +83,5 @@ public static class RegistrationEndpointExtensions
         return true;
     }
 
-    private static IResult Error(string code = "invalid_client_metadata") => OAuthErrorResult.Json(code, "invalid client metadata");
+    private static IResult Error(string code = "invalid_client_metadata") => OAuthErrorResult.Json("registration", code, "invalid client metadata");
 }

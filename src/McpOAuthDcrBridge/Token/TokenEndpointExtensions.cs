@@ -122,5 +122,5 @@ public static class TokenEndpointExtensions
     private static bool IsFormContentType(string? contentType) =>
         contentType is not null && MediaTypeHeaderValue.TryParse(contentType, out var mediaType) && mediaType.MediaType == "application/x-www-form-urlencoded";
 
-    private static IResult Error(string code) => OAuthErrorResult.Json(code, "invalid token request");
+    private static IResult Error(string code) => OAuthErrorResult.Json("token", code, "invalid token request");
 }

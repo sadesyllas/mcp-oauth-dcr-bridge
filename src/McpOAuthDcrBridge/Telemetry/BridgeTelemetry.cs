@@ -35,6 +35,12 @@ public static class BridgeTelemetry
     /// <summary>Gets the counter for bounded validation rejections.</summary>
     public static Counter<long> ValidationRejectionCount { get; } = Meter.CreateCounter<long>("bridge.validation.rejections");
 
+    /// <summary>Records one validation rejection under a bounded route and reason-code label pair.</summary>
+    /// <param name="route">The bounded endpoint route category, as used elsewhere in request telemetry.</param>
+    /// <param name="reason">The bounded RFC 6749-style error code that caused the rejection.</param>
+    public static void RecordValidationRejection(string route, string reason) =>
+        ValidationRejectionCount.Add(1, new KeyValuePair<string, object?>("route", route), new KeyValuePair<string, object?>("reason", reason));
+
     /// <summary>Gets the counter for bounded proxy transport failures.</summary>
     public static Counter<long> ProxyFailureCount { get; } = Meter.CreateCounter<long>("bridge.proxy.failures");
 
