@@ -124,3 +124,85 @@ rejected at both startup and forwarding time if they fall in the shared
 forbidden-header set — closing header-injection and confused-deputy attempts
 through that surface. MCP requests are never automatically retried, since MCP
 tool calls can have side effects that must not be duplicated by the bridge.
+
+## Request size, header, and request-smuggling limits
+
+Oversized or malformed input is a denial-of-service and request-smuggling
+surface. `POST /register` and `POST /token` bound the request body to
+`Bridge:Limits:DcrRequestBodyBytes`/`TokenRequestBodyBytes` before any parsing
+occurs, and reject the request without buffering more than that bound; an
+oversized body fails with the same bounded JSON error as any other invalid
+request rather than a distinct signal an attacker could use to probe the
+limit. Configured upstream header names and values are validated against a
+closed character set (`HttpFieldName`/`HttpFieldValue`) at startup and again
+at forward time, which forecloses header-injection and request-smuggling
+attempts through a configured value — an operator-supplied header can never
+carry a raw CR/LF or other field-terminating byte. Every parsing boundary that
+accepts caller-controlled text (URIs, query strings, form bodies, JSON
+bodies, and the `Bearer` challenge parameter grammar) is covered by
+deterministic-seed fuzz tests that assert the boundary always fails closed
+with a bounded error rather than throwing an unhandled exception.
+
+## Rate limiting and denial of service
+
+`POST /register`, `GET /authorize`, and `POST /token` each have an
+independently configurable fixed-window rate limit
+(`Bridge:Limits:{Dcr,Authorize,Token}RateLimit{PermitLimit,WindowSeconds}`,
+falling back to a shared default when unset — see
+[configuration](configuration.md)). Independence matters because the three
+endpoints have different legitimate traffic shapes and different abuse
+profiles: a client-guessing attack against `/token` should not force the same
+ceiling onto routine `/register` calls from a different integration, and vice
+versa. A caller that exceeds its endpoint's limit receives a bounded `429`
+with no upstream call made and no state retained. Residual risk: the limiter
+partitions by endpoint, not by caller identity or source address, so a
+distributed client population can still consume a shared budget; operators
+who need per-client fairness should rate-limit at the ingress in front of the
+bridge as well.
+
+## HTTP response hardening
+
+Every bridge response carries `X-Content-Type-Options: nosniff`, so a
+browser-based caller can never be induced to sniff a bridge response as
+executable content regardless of its declared content type. `/register`,
+`/authorize`, and `/token` additionally carry `Cache-Control: no-store` and
+`Pragma: no-cache` on every outcome, including validation failures, per RFC
+6749 §5.1's requirement that responses carrying tokens or credentials never be
+cached by a shared or browser cache. Discovery metadata is deliberately
+excluded from that no-store set — it carries no credential and is served with
+`Cache-Control: public, max-age=300` (see [discovery](discovery.md)) — and
+health checks are unaffected, since neither surface can leak anything
+cache-sensitive.
+
+## Bounded errors, safe logging, and configuration diagnostics
+
+Every externally visible error — JSON OAuth errors, redirect-carried errors,
+and unhandled-exception responses — is a fixed, non-parameterized string plus
+an RFC 6749 error code; none ever echoes caller input, an upstream response
+body, or exception detail, which forecloses both information disclosure and
+reflected-content attacks through the error surface itself. Every rejection
+also increments a bounded `bridge.validation.rejections` counter keyed by
+route and RFC 6749 error code, giving operators rejection-rate visibility
+without ever recording the request content that caused it. Configuration
+diagnostics (JSON serialization, health checks, logs, and telemetry) reveal
+only that a secret-bearing setting is configured and which mode is active —
+never the secret, certificate, or header value itself — via a closed
+serialization boundary (`BridgeOptionsJsonConverter`) rather than an
+opt-in redaction list a future field could bypass by omission.
+
+## Dependency and container vulnerability management
+
+`Directory.Build.props` enables NuGet's built-in audit
+(`NuGetAudit=true`, `NuGetAuditMode=all`, `RestoreAuditProperties=all`,
+`NuGetAuditLevel=high`) so any restore surfaces a warning for every direct and
+transitive package with a known advisory at high severity or above; because
+`TreatWarningsAsErrors=true`, an unresolved high or critical advisory fails
+the build rather than merely logging a warning a reviewer could miss. As of
+this review, `dotnet restore` and `dotnet list package --vulnerable
+--include-transitive` report zero vulnerable packages across every project.
+`dotnet list package --deprecated` flags `xunit` 2.9.3 (used only by the three
+test projects, never shipped) as legacy in favor of `xunit.v3`; this is a
+tracked maintenance item, not a vulnerability, and does not block this
+milestone. Container image vulnerability scanning applies to the OCI image
+introduced alongside the deployment documentation and is described there
+rather than here, since no image exists to scan until that artifact is built.
