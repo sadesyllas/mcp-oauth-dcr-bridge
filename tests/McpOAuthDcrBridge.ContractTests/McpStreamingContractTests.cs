@@ -131,11 +131,24 @@ public sealed class McpStreamingContractTests
     {
         const int concurrentSessions = 120;
         await using var fakeUpstream = await FakeUpstreamMcpServer.StartAsync();
+        var arrivedCount = 0;
+        var allArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         fakeUpstream.OnRequest = async context =>
         {
             var sessionId = context.Request.Headers["Mcp-Session-Id"].ToString();
-            await Task.Delay(TimeSpan.FromMilliseconds(50));
-            await context.Response.WriteAsync(sessionId);
+            await context.Response.WriteAsync($"first:{sessionId}");
+            await context.Response.Body.FlushAsync();
+
+            // Every handler blocks here until all 120 have simultaneously reached this point, so a
+            // bridge that serializes or caps concurrent MCP streams below the target deadlocks this
+            // rendezvous (and fails by timeout) instead of passing on sequential throughput.
+            if (Interlocked.Increment(ref arrivedCount) == concurrentSessions)
+            {
+                allArrived.TrySetResult();
+            }
+
+            await allArrived.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await context.Response.WriteAsync($":second:{sessionId}");
         };
         await using var application = BridgeContractHost.CreateWithUpstreamMcp(fakeUpstream.McpEndpoint, permitLimit: concurrentSessions * 2);
         await application.StartAsync();
@@ -147,15 +160,18 @@ public sealed class McpStreamingContractTests
             using var request = new HttpRequestMessage(HttpMethod.Get, "/mcp");
             request.Headers.TryAddWithoutValidation("Authorization", "Bearer canary-token");
             request.Headers.TryAddWithoutValidation("Mcp-Session-Id", $"session-{index}");
-            using var response = await client.SendAsync(request);
-            return (Index: index, response.StatusCode, Body: await response.Content.ReadAsStringAsync());
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+            using var stream = await response.Content.ReadAsStreamAsync();
+            using var reader = new StreamReader(stream, Encoding.ASCII);
+            var body = await reader.ReadToEndAsync().WaitAsync(TimeSpan.FromSeconds(35));
+            return (Index: index, response.StatusCode, Body: body);
         }));
         stopwatch.Stop();
 
         Assert.All(results, result => Assert.Equal(HttpStatusCode.OK, result.StatusCode));
-        Assert.All(results, result => Assert.Equal($"session-{result.Index}", result.Body));
+        Assert.All(results, result => Assert.Equal($"first:session-{result.Index}:second:session-{result.Index}", result.Body));
         Assert.Equal(concurrentSessions, fakeUpstream.RequestCount);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(30), $"expected bounded completion time, took {stopwatch.Elapsed}");
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(35), $"expected bounded completion time, took {stopwatch.Elapsed}");
         await application.StopAsync();
     }
 
@@ -300,6 +316,27 @@ public sealed class McpStreamingContractTests
             }
         });
         Assert.Equal(1, fakeUpstream.RequestCount);
+        await application.StopAsync();
+    }
+
+    [Fact]
+    public async Task ProtocolInvalidUpstreamResponseMapsToABoundedGatewayErrorWithoutRetryOrLeakingRawBytes()
+    {
+        const string garbage = "NOT-HTTP/9.9 garbage that must never reach the downstream client\r\n\r\n";
+        await using var rawUpstream = await RawTcpUpstreamServer.StartAsync(garbage);
+        await using var application = BridgeContractHost.CreateWithUpstreamMcp($"{rawUpstream.BaseUrl}/api/streamable");
+        await application.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(application.Urls.Single()) };
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/mcp");
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer canary-token");
+
+        using var response = await client.SendAsync(request).WaitAsync(TimeSpan.FromSeconds(15));
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.True((int)response.StatusCode is 502 or 503 or 504, $"expected a bounded gateway error, got {(int)response.StatusCode}");
+        Assert.DoesNotContain("NOT-HTTP", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("garbage", body, StringComparison.Ordinal);
+        Assert.Equal(1, rawUpstream.ConnectionCount);
         await application.StopAsync();
     }
 

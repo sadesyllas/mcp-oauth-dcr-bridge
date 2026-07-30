@@ -10,6 +10,7 @@ namespace McpOAuthDcrBridge.ContractTests;
 internal sealed class FakeUpstreamMcpServer : IAsyncDisposable
 {
     private readonly WebApplication application;
+    private int requestCount;
 
     private FakeUpstreamMcpServer(WebApplication application, string mcpPath)
     {
@@ -35,8 +36,8 @@ internal sealed class FakeUpstreamMcpServer : IAsyncDisposable
     /// <summary>Gets the body of the most recent request.</summary>
     public string? LastBody { get; private set; }
 
-    /// <summary>Gets the number of requests this server has received.</summary>
-    public int RequestCount { get; private set; }
+    /// <summary>Gets the number of requests this server has received. Safe to read under concurrent requests.</summary>
+    public int RequestCount => requestCount;
 
     /// <summary>Gets or sets the response behavior; defaults to a minimal successful text response.</summary>
     public Func<HttpContext, Task>? OnRequest { get; set; }
@@ -56,7 +57,7 @@ internal sealed class FakeUpstreamMcpServer : IAsyncDisposable
         var server = new FakeUpstreamMcpServer(application, mcpPath);
         application.MapMethods(mcpPath, ["GET", "POST", "DELETE"], async context =>
         {
-            server.RequestCount++;
+            Interlocked.Increment(ref server.requestCount);
             server.LastMethod = context.Request.Method;
             server.LastPath = context.Request.Path.Value;
             server.LastQuery = context.Request.QueryString.Value;
