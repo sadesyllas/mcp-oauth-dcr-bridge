@@ -95,7 +95,19 @@ again when the bridge actually forwards a request. See
 | `ShutdownDrainTimeoutSeconds` | 30 s | 1–300 s |
 | `RateLimitPermitLimit` | 100 | 1–10,000 |
 | `RateLimitWindowSeconds` | 60 s | 1–3,600 s |
+| `DcrRateLimitPermitLimit` | `RateLimitPermitLimit` | 1–10,000 |
+| `DcrRateLimitWindowSeconds` | `RateLimitWindowSeconds` | 1–3,600 s |
+| `AuthorizeRateLimitPermitLimit` | `RateLimitPermitLimit` | 1–10,000 |
+| `AuthorizeRateLimitWindowSeconds` | `RateLimitWindowSeconds` | 1–3,600 s |
+| `TokenRateLimitPermitLimit` | `RateLimitPermitLimit` | 1–10,000 |
+| `TokenRateLimitWindowSeconds` | `RateLimitWindowSeconds` | 1–3,600 s |
 | `PrivateKeyJwtAssertionLifetimeSeconds` | 60 s | 10–600 s |
+
+`RateLimitPermitLimit` and `RateLimitWindowSeconds` set the shared default fixed-window
+rate limit; `/register`, `/authorize`, and `/token` each independently fall back to that
+default. Set the endpoint-prefixed keys above to give one endpoint its own limit without
+affecting the other two — for example, a tighter `TokenRateLimitPermitLimit` to slow
+credential-guessing traffic while dynamic client registration keeps the shared default.
 
 Configuration is resolved once during startup and injected as immutable options.
 Changing a configuration provider after startup has no effect; deploy a new

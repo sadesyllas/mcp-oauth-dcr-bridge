@@ -15,6 +15,9 @@ public static class BridgeOptionsFactory
     private const int DefaultDcrBodyBytes = 32 * 1024;
     private const int DefaultTokenBodyBytes = 16 * 1024;
 
+    private static readonly (string PolicyName, string ConfigPrefix)[] RateLimitedEndpoints =
+        [("dcr", "Dcr"), ("authorize", "Authorize"), ("token", "Token")];
+
     /// <summary>Creates immutable options from configuration and validates every security boundary.</summary>
     /// <param name="configuration">The composed application configuration.</param>
     /// <param name="isDevelopment">Whether the host is in the explicit local-development environment.</param>
@@ -164,6 +167,7 @@ public static class BridgeOptionsFactory
         var dcrBytes = Number(section, "DcrRequestBodyBytes", DefaultDcrBodyBytes, 1024, 1024 * 1024);
         var tokenBytes = Number(section, "TokenRequestBodyBytes", DefaultTokenBodyBytes, 1024, 1024 * 1024);
         var permitLimit = Number(section, "RateLimitPermitLimit", 100, 1, 10000);
+        var windowSeconds = Number(section, "RateLimitWindowSeconds", 60, 1, 3600);
         return new BridgeLimits
         {
             DcrRequestBodyBytes = dcrBytes,
@@ -172,9 +176,25 @@ public static class BridgeOptionsFactory
             McpActivityTimeout = Duration(section, "McpActivityTimeoutSeconds", 300, 1, 3600),
             ShutdownDrainTimeout = Duration(section, "ShutdownDrainTimeoutSeconds", 30, 1, 300),
             RateLimitPermitLimit = permitLimit,
-            RateLimitWindow = Duration(section, "RateLimitWindowSeconds", 60, 1, 3600),
+            RateLimitWindow = TimeSpan.FromSeconds(windowSeconds),
+            EndpointRateLimits = EndpointRateLimits(section, permitLimit, windowSeconds),
             PrivateKeyJwtAssertionLifetime = Duration(section, "PrivateKeyJwtAssertionLifetimeSeconds", 60, 10, 600),
         };
+    }
+
+    private static ImmutableDictionary<string, RateLimitPolicy> EndpointRateLimits(IConfigurationSection section, int defaultPermitLimit, int defaultWindowSeconds)
+    {
+        var result = ImmutableDictionary.CreateBuilder<string, RateLimitPolicy>(StringComparer.Ordinal);
+        foreach (var (policyName, configPrefix) in RateLimitedEndpoints)
+        {
+            result[policyName] = new RateLimitPolicy
+            {
+                PermitLimit = Number(section, $"{configPrefix}RateLimitPermitLimit", defaultPermitLimit, 1, 10000),
+                Window = Duration(section, $"{configPrefix}RateLimitWindowSeconds", defaultWindowSeconds, 1, 3600),
+            };
+        }
+
+        return result.ToImmutable();
     }
 
     private static int Number(IConfigurationSection section, string key, int defaultValue, int min, int max)

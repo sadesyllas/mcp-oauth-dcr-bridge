@@ -63,10 +63,11 @@ public static class BridgeApplication
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             foreach (var policyName in RateLimitedEndpointPolicies)
             {
+                var policy = bridgeOptions.Limits.EndpointRateLimits[policyName];
                 options.AddFixedWindowLimiter(policyName, limiter =>
                 {
-                    limiter.PermitLimit = bridgeOptions.Limits.RateLimitPermitLimit;
-                    limiter.Window = bridgeOptions.Limits.RateLimitWindow;
+                    limiter.PermitLimit = policy.PermitLimit;
+                    limiter.Window = policy.Window;
                     limiter.QueueLimit = 0;
                 });
             }

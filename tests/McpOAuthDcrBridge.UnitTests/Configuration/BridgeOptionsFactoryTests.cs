@@ -11,6 +11,7 @@ namespace McpOAuthDcrBridge.UnitTests.Configuration;
 public sealed class BridgeOptionsFactoryTests
 {
     private static readonly string ValidCertificatePath = TestCertificates.WriteTemporaryPfx(TestCertificates.CreateRsaPfx(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30)));
+    private static readonly string[] RateLimitedPolicyNames = ["dcr", "authorize", "token"];
 
 
     [Fact]
@@ -401,6 +402,12 @@ public sealed class BridgeOptionsFactoryTests
             (Key: "ShutdownDrainTimeoutSeconds", Minimum: 1, Maximum: 300),
             (Key: "RateLimitPermitLimit", Minimum: 1, Maximum: 10000),
             (Key: "RateLimitWindowSeconds", Minimum: 1, Maximum: 3600),
+            (Key: "DcrRateLimitPermitLimit", Minimum: 1, Maximum: 10000),
+            (Key: "DcrRateLimitWindowSeconds", Minimum: 1, Maximum: 3600),
+            (Key: "AuthorizeRateLimitPermitLimit", Minimum: 1, Maximum: 10000),
+            (Key: "AuthorizeRateLimitWindowSeconds", Minimum: 1, Maximum: 3600),
+            (Key: "TokenRateLimitPermitLimit", Minimum: 1, Maximum: 10000),
+            (Key: "TokenRateLimitWindowSeconds", Minimum: 1, Maximum: 3600),
             (Key: "PrivateKeyJwtAssertionLifetimeSeconds", Minimum: 10, Maximum: 600),
         };
 
@@ -435,6 +442,18 @@ public sealed class BridgeOptionsFactoryTests
     [InlineData("RateLimitPermitLimit", "10000")]
     [InlineData("RateLimitWindowSeconds", "1")]
     [InlineData("RateLimitWindowSeconds", "3600")]
+    [InlineData("DcrRateLimitPermitLimit", "1")]
+    [InlineData("DcrRateLimitPermitLimit", "10000")]
+    [InlineData("DcrRateLimitWindowSeconds", "1")]
+    [InlineData("DcrRateLimitWindowSeconds", "3600")]
+    [InlineData("AuthorizeRateLimitPermitLimit", "1")]
+    [InlineData("AuthorizeRateLimitPermitLimit", "10000")]
+    [InlineData("AuthorizeRateLimitWindowSeconds", "1")]
+    [InlineData("AuthorizeRateLimitWindowSeconds", "3600")]
+    [InlineData("TokenRateLimitPermitLimit", "1")]
+    [InlineData("TokenRateLimitPermitLimit", "10000")]
+    [InlineData("TokenRateLimitWindowSeconds", "1")]
+    [InlineData("TokenRateLimitWindowSeconds", "3600")]
     [InlineData("PrivateKeyJwtAssertionLifetimeSeconds", "10")]
     [InlineData("PrivateKeyJwtAssertionLifetimeSeconds", "600")]
     public void CreateAcceptsLimitBoundaries(string key, string value)
@@ -457,6 +476,31 @@ public sealed class BridgeOptionsFactoryTests
         Assert.Equal(100, limits.RateLimitPermitLimit);
         Assert.Equal(TimeSpan.FromSeconds(60), limits.RateLimitWindow);
         Assert.Equal(TimeSpan.FromSeconds(60), limits.PrivateKeyJwtAssertionLifetime);
+        Assert.All(RateLimitedPolicyNames, policyName =>
+        {
+            Assert.Equal(100, limits.EndpointRateLimits[policyName].PermitLimit);
+            Assert.Equal(TimeSpan.FromSeconds(60), limits.EndpointRateLimits[policyName].Window);
+        });
+    }
+
+    [Fact]
+    public void CreateResolvesEachEndpointRateLimitIndependently()
+    {
+        var limits = BridgeOptionsFactory.Create(ValidBridgeConfiguration.Create(values =>
+        {
+            values["Bridge:Limits:RateLimitPermitLimit"] = "50";
+            values["Bridge:Limits:RateLimitWindowSeconds"] = "45";
+            values["Bridge:Limits:DcrRateLimitPermitLimit"] = "5";
+            values["Bridge:Limits:DcrRateLimitWindowSeconds"] = "10";
+            values["Bridge:Limits:AuthorizeRateLimitPermitLimit"] = "20";
+        }), false).Limits;
+
+        Assert.Equal(5, limits.EndpointRateLimits["dcr"].PermitLimit);
+        Assert.Equal(TimeSpan.FromSeconds(10), limits.EndpointRateLimits["dcr"].Window);
+        Assert.Equal(20, limits.EndpointRateLimits["authorize"].PermitLimit);
+        Assert.Equal(TimeSpan.FromSeconds(45), limits.EndpointRateLimits["authorize"].Window);
+        Assert.Equal(50, limits.EndpointRateLimits["token"].PermitLimit);
+        Assert.Equal(TimeSpan.FromSeconds(45), limits.EndpointRateLimits["token"].Window);
     }
 
     [Theory]
@@ -467,6 +511,12 @@ public sealed class BridgeOptionsFactoryTests
     [InlineData("ShutdownDrainTimeoutSeconds")]
     [InlineData("RateLimitPermitLimit")]
     [InlineData("RateLimitWindowSeconds")]
+    [InlineData("DcrRateLimitPermitLimit")]
+    [InlineData("DcrRateLimitWindowSeconds")]
+    [InlineData("AuthorizeRateLimitPermitLimit")]
+    [InlineData("AuthorizeRateLimitWindowSeconds")]
+    [InlineData("TokenRateLimitPermitLimit")]
+    [InlineData("TokenRateLimitWindowSeconds")]
     [InlineData("PrivateKeyJwtAssertionLifetimeSeconds")]
     public void CreateRejectsNonNumericLimits(string key)
     {
