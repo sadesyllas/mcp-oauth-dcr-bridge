@@ -3,6 +3,7 @@ using McpOAuthDcrBridge.Configuration;
 using McpOAuthDcrBridge.Discovery;
 using McpOAuthDcrBridge.Mcp;
 using McpOAuthDcrBridge.Registration;
+using McpOAuthDcrBridge.Security;
 using McpOAuthDcrBridge.Token;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
@@ -78,6 +79,7 @@ public static class BridgeApplication
 
         var application = builder.Build();
         application.UseBridgeTelemetry();
+        application.UseSecurityHeaders();
         application.UseExceptionHandler(errorApplication => errorApplication.Run(context =>
         {
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
