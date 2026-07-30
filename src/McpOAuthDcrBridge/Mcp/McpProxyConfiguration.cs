@@ -1,6 +1,7 @@
 using System.Net;
 using McpOAuthDcrBridge.Configuration;
 using Yarp.ReverseProxy.Configuration;
+using Yarp.ReverseProxy.Forwarder;
 using Yarp.ReverseProxy.Transforms;
 
 namespace McpOAuthDcrBridge.Mcp;
@@ -8,7 +9,8 @@ namespace McpOAuthDcrBridge.Mcp;
 /// <summary>
 /// Builds the single fixed YARP route and cluster that proxy <c>/mcp</c> to the configured upstream
 /// MCP server, and the transforms that apply configured static headers and rewrite an upstream bearer
-/// challenge to identify the bridge's own discovery metadata.
+/// challenge to identify the bridge's own discovery metadata. The route carries no fixed total-duration
+/// timeout; only the configured activity (inactivity) timeout bounds an idle stream.
 /// </summary>
 public static class McpProxyConfiguration
 {
@@ -29,6 +31,7 @@ public static class McpProxyConfiguration
         var cluster = new ClusterConfig
         {
             ClusterId = RouteAndClusterId,
+            HttpRequest = new ForwarderRequestConfig { ActivityTimeout = options.Limits.McpActivityTimeout },
             Destinations = new Dictionary<string, DestinationConfig>(StringComparer.Ordinal)
             {
                 [RouteAndClusterId] = new DestinationConfig { Address = OriginOf(options.UpstreamMcpUri) },

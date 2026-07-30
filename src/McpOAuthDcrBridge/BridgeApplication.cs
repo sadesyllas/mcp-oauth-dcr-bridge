@@ -6,6 +6,7 @@ using McpOAuthDcrBridge.Registration;
 using McpOAuthDcrBridge.Token;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Threading.RateLimiting;
 using McpOAuthDcrBridge.Telemetry;
@@ -54,6 +55,7 @@ public static class BridgeApplication
         builder.Logging.ConfigureBridgeLogging(builder.Environment.IsDevelopment());
         configureLogging?.Invoke(builder.Logging);
         builder.Services.AddSingleton(bridgeOptions);
+        builder.Services.Configure<HostOptions>(options => options.ShutdownTimeout = bridgeOptions.Limits.ShutdownDrainTimeout);
         builder.Services.AddBridgeTelemetry(bridgeOptions, builder.Environment.IsDevelopment());
         builder.Services.AddHealthChecks();
         builder.Services.AddRateLimiter(options =>
