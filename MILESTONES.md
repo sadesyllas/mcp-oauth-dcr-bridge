@@ -19,7 +19,7 @@
 | M8 | YARP MCP reverse proxy and configured headers | ✅ | ✅ | ✅ |
 | M9 | Streaming, session, cancellation, and failure semantics | ✅ | ✅ | ✅ |
 | M10 | Security and operational hardening | ✅ | ✅ | ⬜ |
-| M11 | Packaging, performance, and release readiness | ⬜ | ⬜ | ⬜ |
+| M11 | Packaging, performance, and release readiness | ✅ | ✅ | ⬜ |
 
 - **Done** — implemented.
 - **Tested** — thorough tests written **and** passing.
