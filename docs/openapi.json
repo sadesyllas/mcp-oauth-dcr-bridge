@@ -1,0 +1,276 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "MCP OAuth DCR Bridge",
+    "version": "1.0",
+    "description": "Machine-readable documentation for the bridge-owned metadata, DCR, authorization, token, health, and MCP proxy surfaces. Every example uses fictional domains and identifiers; see docs/security.md for the full threat model and docs/configuration.md for the deployment contract this document is generated to match. No response ever includes a client secret, certificate, or upstream credential."
+  },
+  "servers": [
+    { "url": "https://bridge.example.test", "description": "Fictional example deployment; ExternalBaseUrl in configuration.md." }
+  ],
+  "paths": {
+    "/.well-known/oauth-authorization-server": {
+      "get": {
+        "operationId": "getAuthorizationServerMetadata",
+        "summary": "RFC 8414 authorization server metadata",
+        "tags": ["Discovery"],
+        "responses": {
+          "200": {
+            "description": "Authorization server metadata, cached for 300 seconds.",
+            "headers": { "Cache-Control": { "schema": { "type": "string", "example": "public, max-age=300" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthorizationServerMetadata" } } }
+          },
+          "406": { "description": "The request's Accept header excludes application/json." }
+        }
+      }
+    },
+    "/.well-known/oauth-protected-resource": {
+      "get": {
+        "operationId": "getProtectedResourceMetadata",
+        "summary": "RFC 9728 protected resource metadata",
+        "tags": ["Discovery"],
+        "responses": {
+          "200": {
+            "description": "Protected resource metadata, cached for 300 seconds.",
+            "headers": { "Cache-Control": { "schema": { "type": "string", "example": "public, max-age=300" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProtectedResourceMetadata" } } }
+          },
+          "406": { "description": "The request's Accept header excludes application/json." }
+        }
+      }
+    },
+    "/register": {
+      "post": {
+        "operationId": "registerClient",
+        "summary": "Stateless fixed-client dynamic registration (RFC 7591)",
+        "tags": ["Registration"],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegistrationRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "The one fixed public-client registration response. Deterministic for every valid request; no registration state is stored.",
+            "headers": {
+              "Cache-Control": { "schema": { "type": "string", "example": "no-store" } },
+              "Pragma": { "schema": { "type": "string", "example": "no-cache" } }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegistrationResponse" } } }
+          },
+          "400": {
+            "description": "Invalid, ambiguous, or disallowed client metadata.",
+            "headers": { "Cache-Control": { "schema": { "type": "string", "example": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "429": { "description": "The per-endpoint rate limit was exceeded." }
+        }
+      }
+    },
+    "/authorize": {
+      "get": {
+        "operationId": "authorize",
+        "summary": "Transparent authorization forwarding with mandatory S256 PKCE",
+        "tags": ["Authorization"],
+        "parameters": [
+          { "name": "client_id", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "redirect_uri", "in": "query", "required": true, "schema": { "type": "string", "format": "uri" } },
+          { "name": "response_type", "in": "query", "required": true, "schema": { "type": "string", "enum": ["code"] } },
+          { "name": "code_challenge", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "code_challenge_method", "in": "query", "required": true, "schema": { "type": "string", "enum": ["S256"] } },
+          { "name": "scope", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "resource", "in": "query", "required": false, "schema": { "type": "string", "format": "uri" } }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the one configured upstream authorization endpoint with every accepted parameter forwarded unchanged, once client_id and redirect_uri validate against the exact configured values.",
+            "headers": {
+              "Cache-Control": { "schema": { "type": "string", "example": "no-store" } },
+              "Location": { "schema": { "type": "string", "format": "uri" } }
+            }
+          },
+          "400": {
+            "description": "client_id or redirect_uri failed to validate before any redirect target could be trusted.",
+            "headers": { "Cache-Control": { "schema": { "type": "string", "example": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "429": { "description": "The per-endpoint rate limit was exceeded." }
+        }
+      }
+    },
+    "/token": {
+      "post": {
+        "operationId": "exchangeToken",
+        "summary": "Transparent authorization_code/refresh_token forwarding",
+        "tags": ["Token"],
+        "requestBody": {
+          "required": true,
+          "content": { "application/x-www-form-urlencoded": { "schema": { "$ref": "#/components/schemas/TokenRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "The upstream token response, relayed byte-for-byte and never inspected, cached, or reused by the bridge.",
+            "headers": { "Cache-Control": { "schema": { "type": "string", "example": "no-store" } } },
+            "content": { "application/json": { "schema": { "type": "object", "description": "Opaque upstream token response." } } }
+          },
+          "400": {
+            "description": "Invalid, duplicated, or smuggled request fields.",
+            "headers": { "Cache-Control": { "schema": { "type": "string", "example": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OAuthError" } } }
+          },
+          "429": { "description": "The per-endpoint rate limit was exceeded." },
+          "502": { "description": "The upstream token endpoint was unreachable or refused the connection." },
+          "504": { "description": "The upstream token endpoint did not respond within the configured timeout." }
+        }
+      }
+    },
+    "/health/live": {
+      "get": {
+        "operationId": "getLiveness",
+        "summary": "Process liveness; makes no outbound calls",
+        "tags": ["Health"],
+        "responses": {
+          "200": { "description": "The process is running.", "content": { "text/plain": { "schema": { "type": "string", "example": "Healthy" } } } }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Startup configuration validity; makes no outbound calls",
+        "tags": ["Health"],
+        "responses": {
+          "200": { "description": "Startup configuration validated successfully.", "content": { "text/plain": { "schema": { "type": "string", "example": "Healthy" } } } }
+        }
+      }
+    },
+    "/mcp": {
+      "get": {
+        "operationId": "mcpStreamableGet",
+        "summary": "Streamable HTTP MCP proxy (server-to-client stream)",
+        "tags": ["Mcp"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Proxied upstream MCP response or event stream, forwarded incrementally." },
+          "401": {
+            "description": "Missing or rejected bearer token. The WWW-Authenticate challenge's resource_metadata always points back to this bridge's own protected-resource document, never an upstream-identifying value.",
+            "headers": { "WWW-Authenticate": { "schema": { "type": "string" } } }
+          }
+        }
+      },
+      "post": {
+        "operationId": "mcpStreamablePost",
+        "summary": "Streamable HTTP MCP proxy (client-to-server request)",
+        "tags": ["Mcp"],
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "description": "Opaque MCP JSON-RPC payload, forwarded unchanged." } } }
+        },
+        "responses": {
+          "200": { "description": "Proxied upstream MCP response or event stream, forwarded incrementally." },
+          "401": { "description": "Missing or rejected bearer token." }
+        }
+      },
+      "delete": {
+        "operationId": "mcpStreamableDelete",
+        "summary": "Streamable HTTP MCP proxy (session termination)",
+        "tags": ["Mcp"],
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Proxied upstream MCP response." },
+          "401": { "description": "Missing or rejected bearer token." }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Opaque to the bridge in both directions: never inspected, decoded, or logged, only forwarded byte-for-byte to the one configured upstream MCP server."
+      }
+    },
+    "schemas": {
+      "AuthorizationServerMetadata": {
+        "type": "object",
+        "properties": {
+          "issuer": { "type": "string", "format": "uri" },
+          "registration_endpoint": { "type": "string", "format": "uri" },
+          "authorization_endpoint": { "type": "string", "format": "uri" },
+          "token_endpoint": { "type": "string", "format": "uri" },
+          "response_types_supported": { "type": "array", "items": { "type": "string" }, "example": ["code"] },
+          "grant_types_supported": { "type": "array", "items": { "type": "string" }, "example": ["authorization_code", "refresh_token"] },
+          "token_endpoint_auth_methods_supported": { "type": "array", "items": { "type": "string" }, "example": ["none"] },
+          "code_challenge_methods_supported": { "type": "array", "items": { "type": "string" }, "example": ["S256"] }
+        },
+        "required": ["issuer", "registration_endpoint", "authorization_endpoint", "token_endpoint", "response_types_supported", "grant_types_supported", "token_endpoint_auth_methods_supported", "code_challenge_methods_supported"]
+      },
+      "ProtectedResourceMetadata": {
+        "type": "object",
+        "properties": {
+          "resource": { "type": "string", "format": "uri" },
+          "authorization_servers": { "type": "array", "items": { "type": "string", "format": "uri" } },
+          "scopes_supported": { "type": "array", "items": { "type": "string" } },
+          "bearer_methods_supported": { "type": "array", "items": { "type": "string" }, "example": ["header"] }
+        },
+        "required": ["resource", "authorization_servers", "scopes_supported", "bearer_methods_supported"]
+      },
+      "RegistrationRequest": {
+        "type": "object",
+        "properties": {
+          "redirect_uris": { "type": "array", "items": { "type": "string", "format": "uri" }, "minItems": 1 },
+          "response_types": { "type": "array", "items": { "type": "string", "enum": ["code"] } },
+          "grant_types": { "type": "array", "items": { "type": "string", "enum": ["authorization_code", "refresh_token"] } },
+          "token_endpoint_auth_method": { "type": "string", "enum": ["none"] },
+          "scope": { "type": "string" }
+        },
+        "required": ["redirect_uris"],
+        "description": "client_secret, client_secret_expires_at, jwks, jwks_uri, software_statement, software_id, and software_version are rejected outright rather than ignored."
+      },
+      "RegistrationResponse": {
+        "type": "object",
+        "properties": {
+          "client_id": { "type": "string" },
+          "redirect_uris": { "type": "array", "items": { "type": "string", "format": "uri" } },
+          "response_types": { "type": "array", "items": { "type": "string" }, "example": ["code"] },
+          "grant_types": { "type": "array", "items": { "type": "string" }, "example": ["authorization_code", "refresh_token"] },
+          "token_endpoint_auth_method": { "type": "string", "example": "none" },
+          "scope": { "type": "string" }
+        },
+        "required": ["client_id", "redirect_uris", "response_types", "grant_types", "token_endpoint_auth_method"]
+      },
+      "TokenRequest": {
+        "type": "object",
+        "properties": {
+          "grant_type": { "type": "string", "enum": ["authorization_code", "refresh_token"] },
+          "client_id": { "type": "string" },
+          "code": { "type": "string" },
+          "code_verifier": { "type": "string" },
+          "redirect_uri": { "type": "string", "format": "uri" },
+          "refresh_token": { "type": "string" },
+          "scope": { "type": "string" }
+        },
+        "required": ["grant_type", "client_id"],
+        "description": "client_secret, client_assertion, client_assertion_type, and an Authorization header are all rejected outright as credential smuggling; the bridge attaches upstream client authentication itself."
+      },
+      "OAuthError": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string", "description": "RFC 6749 error code." },
+          "error_description": { "type": "string", "description": "A fixed, non-parameterized description that never echoes caller input." }
+        },
+        "required": ["error", "error_description"]
+      }
+    }
+  },
+  "tags": [
+    { "name": "Discovery" },
+    { "name": "Registration" },
+    { "name": "Authorization" },
+    { "name": "Token" },
+    { "name": "Health" },
+    { "name": "Mcp" }
+  ]
+}
