@@ -16,12 +16,18 @@ dotnet build McpOAuthDcrBridge.sln --configuration Release --no-restore
 dotnet format McpOAuthDcrBridge.sln --verify-no-changes --no-restore
 dotnet test McpOAuthDcrBridge.sln --configuration Release --no-build --collect:"XPlat Code Coverage"
 dotnet list McpOAuthDcrBridge.sln package --vulnerable --include-transitive
+trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed mcp-oauth-dcr-bridge:local
 ```
 
 `dotnet restore` also runs NuGet's built-in vulnerability audit (see
 [the dependency management section of the security model](security.md#dependency-and-container-vulnerability-management));
 an unresolved high or critical advisory fails the restore, and therefore the
-build, before any test even runs.
+build, before any test even runs. The image scan is the same gate applied to
+the OS/runtime layers the NuGet audit cannot see — see
+[image vulnerability scanning](deployment.md#image-vulnerability-scanning)
+for the alternative `docker scout` command and when to re-run it.
+`scripts/container-smoke-test.sh` runs this scan automatically as its last
+step against the image it builds.
 
 ## Performance methodology and reference results
 

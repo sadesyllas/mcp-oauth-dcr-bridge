@@ -209,6 +209,10 @@ this review, `dotnet restore` and `dotnet list package --vulnerable
 `dotnet list package --deprecated` flags `xunit` 2.9.3 (used only by the three
 test projects, never shipped) as legacy in favor of `xunit.v3`; this is a
 tracked maintenance item, not a vulnerability, and does not block this
-milestone. Container image vulnerability scanning applies to the OCI image
-introduced alongside the deployment documentation and is described there
-rather than here, since no image exists to scan until that artifact is built.
+milestone. Container image vulnerability scanning covers the OS and runtime
+layers the NuGet audit above cannot see; see
+[image vulnerability scanning](deployment.md#image-vulnerability-scanning)
+for the scan commands, when they run, and the same unresolved-high/critical
+release gate applied to the .NET dependency audit. As of this review, a
+Trivy scan (`--severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed`) of the
+built image reports zero unresolved high or critical findings.

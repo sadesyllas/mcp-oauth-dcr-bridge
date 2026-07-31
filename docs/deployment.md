@@ -45,6 +45,35 @@ Operators who need a specific, immutable digest rather than a floating
 in a local fork of the Dockerfile, recording the digest alongside the
 deployment's change record.
 
+## Image vulnerability scanning
+
+The dependency audit in
+[the security model](security.md#dependency-and-container-vulnerability-management)
+covers .NET packages; it says nothing about the OS and runtime layers the
+image is built on. Scan the built image with either:
+
+```sh
+trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed mcp-oauth-dcr-bridge:local
+```
+
+```sh
+docker scout cves --only-severity critical,high --exit-code mcp-oauth-dcr-bridge:local
+```
+
+Both exit non-zero on an unresolved high or critical finding, which is the
+release gate: an unresolved high or critical finding in either the .NET
+dependency audit or the image scan blocks release, exactly like the
+existing `NuGetAudit` gate documented in
+[testing](testing.md#automated-suites). Run the scan on every image build
+and whenever the pinned base image tag moves, since `mcr.microsoft.com/dotnet/aspnet:10.0`
+is a floating tag that receives its own upstream patches independent of
+this repository's commits.
+`scripts/container-smoke-test.sh` runs this scan automatically as its final
+step, using whichever of `trivy` or `docker scout` is available, and prints
+an explicit `SKIP` warning rather than silently passing when neither is
+installed — so a missing scanner is always visible in the script's output,
+never mistaken for a clean result.
+
 ## Port and health probes
 
 The container listens on port `8080` over plain HTTP

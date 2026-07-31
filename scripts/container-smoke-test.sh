@@ -91,4 +91,16 @@ grep -qi "Bridge" /tmp/mcp-bridge-smoke-invalid-config.log || { echo "FAIL: star
 rm -f /tmp/mcp-bridge-smoke-invalid-config.log
 echo "PASS: missing configuration fails closed at startup with a bounded, prompt exit"
 
+echo "==> Scanning the image for known high/critical vulnerabilities"
+if command -v trivy >/dev/null 2>&1; then
+  trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed "$IMAGE_TAG"
+  echo "PASS: trivy reported no unresolved high/critical findings"
+elif docker scout version >/dev/null 2>&1; then
+  docker scout cves --only-severity critical,high --exit-code "$IMAGE_TAG"
+  echo "PASS: docker scout reported no unresolved high/critical findings"
+else
+  echo "SKIP: no image vulnerability scanner found (install trivy: https://aquasecurity.github.io/trivy/, or enable 'docker scout')." >&2
+  echo "      This is a release-gate requirement — see docs/deployment.md#image-vulnerability-scanning." >&2
+fi
+
 echo "==> All container smoke tests passed"
